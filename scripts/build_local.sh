@@ -68,8 +68,15 @@ if [ ! -d "src/zmachine/frotz" ]; then
     exit 1
 fi
 
-# Generate Frotz header files if they don't exist
+# Generate Frotz header files if they don't exist or are incomplete
+NEEDS_REGEN=0
 if [ ! -f "src/zmachine/frotz/src/common/defs.h" ] || [ ! -f "src/zmachine/frotz/src/common/hash.h" ]; then
+    NEEDS_REGEN=1
+elif ! grep -q "GIT_HASH" src/zmachine/frotz/src/common/defs.h 2>/dev/null; then
+    NEEDS_REGEN=1
+fi
+
+if [ $NEEDS_REGEN -eq 1 ]; then
     echo -e "${GREEN}Generating Frotz header files...${NC}"
     cd src/zmachine/frotz
     make defs.h hash.h 2>/dev/null || {
