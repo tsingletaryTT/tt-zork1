@@ -9,19 +9,31 @@ This project ports the classic interactive fiction game Zork I to run on Tenstor
 
 ## Quick Start
 
-### Local Development (Native Build)
+### Native Build (Working!)
 ```bash
-# Build for local testing
+# Build for local testing (macOS, Linux)
 ./scripts/build_local.sh
 
-# Run Zork
+# Play Zork!
 ./zork-native game/zork1.z3
 ```
 
-### Hardware Deployment
+### RISC-V Cross-Compilation (Build System Ready!)
 ```bash
-# On Wormhole/Blackhole system after git pull
-./scripts/build_riscv.sh release
+# Install RISC-V toolchain first (see docs/RISCV_SETUP.md)
+# macOS: brew tap riscv-software-src/riscv && brew install riscv-gnu-toolchain
+# Ubuntu: sudo apt-get install gcc-riscv64-linux-gnu
+
+# Build for Tenstorrent RISC-V cores
+./scripts/build_riscv.sh
+
+# Test on QEMU
+qemu-riscv64 ./zork-riscv game/zork1.z3
+```
+
+### Hardware Deployment (Coming in Phase 1.4)
+```bash
+# Deploy to Wormhole/Blackhole (requires TT-Metal SDK)
 ./scripts/deploy.sh [wormhole|blackhole]
 ```
 
@@ -49,24 +61,45 @@ tt-zork1/
 ## Documentation
 
 - **[Architecture Documentation](docs/architecture.md)** - Detailed technical architecture
-- **[Implementation Plan](.claude/plans/)** - Phased implementation plan
-- **[Original Zork Source](#zork-i-source-code-collection)** - Historical Zork source information below
+- **[Phase 1.2 Complete](docs/PHASE_1_2_COMPLETE.md)** - Frotz integration with UTF-8 support
+- **[RISC-V Setup Guide](docs/RISCV_SETUP.md)** - Cross-compilation instructions
+- **[Phase 1.3 Ready](docs/PHASE_1_3_READY.md)** - RISC-V build system documentation
+- **[Implementation Plan](.claude/plans/)** - Original phased plan
+- **[Original Zork Source](#zork-i-source-code-collection)** - Historical Zork source information
 
 ## Development Status
 
-**Phase 1: Foundation** (In Progress)
-- ✅ Repository structure and build system
-- 🔄 Frotz interpreter integration
-- ⏳ I/O abstraction layer
-- ⏳ Hardware deployment
+**Phase 1.2: Frotz Integration** ✅ COMPLETE
+- ✅ Frotz 2.56pre dumb interface integration
+- ✅ UTF-8 support enabled
+- ✅ Native build working perfectly (macOS, Linux ready)
+- ✅ Full Zork I gameplay functional
+- ✅ ~220KB binary, 3-4 second build time
 
-**Phase 2: Hybrid Architecture** (Not Started)
-- ⏳ Parser abstraction
-- ⏳ Inference integration points
+**Phase 1.3: RISC-V Cross-Compilation** ✅ BUILD SYSTEM READY
+- ✅ build_riscv.sh script complete
+- ✅ Auto-detection of RISC-V toolchains
+- ✅ RV64IMAC architecture targeting
+- ✅ UTF-8 support
+- ✅ Static linking for bare-metal
+- ✅ Comprehensive documentation
+- ⏳ Awaiting toolchain installation for testing
 
-**Phase 3: LLM Inference** (Not Started)
-- ⏳ Model selection and training
+**Phase 1.4: Hardware Deployment** (Next)
+- ⏳ TT-Metal I/O layer implementation
+- ⏳ RISC-V loader for Tenstorrent cores
+- ⏳ Hardware testing on Wormhole/Blackhole
+
+**Phase 2: Hybrid Architecture** (Future)
+- ⏳ Parser abstraction layer
+- ⏳ Message passing between RISC-V and Tensix
+- ⏳ LLM inference integration points
+
+**Phase 3: LLM Natural Language Parser** (Future)
+- ⏳ Model selection and quantization
+- ⏳ Training data generation
 - ⏳ TT-Metal inference kernels
+- ⏳ Hybrid classic/LLM parser
 
 ## Resources
 

@@ -35,11 +35,32 @@ BUILD_TYPE="${1:-debug}"
 BUILD_DIR="build-riscv"
 BINARY_NAME="zork-riscv"
 
-# RISC-V toolchain settings
-# These will need to be adjusted based on your specific toolchain
-RISCV_TOOLCHAIN="${RISCV_TOOLCHAIN:-riscv64-unknown-elf}"
-CC="${RISCV_TOOLCHAIN}-gcc"
-OBJCOPY="${RISCV_TOOLCHAIN}-objcopy"
+# RISC-V toolchain configuration
+# Try multiple common toolchain prefixes
+RISCV_PREFIXES=(
+    "riscv64-unknown-elf"
+    "riscv64-linux-gnu"
+    "riscv64-unknown-linux-gnu"
+)
+
+# Find available RISC-V toolchain
+RISCV_PREFIX=""
+for prefix in "${RISCV_PREFIXES[@]}"; do
+    if command -v "${prefix}-gcc" &> /dev/null; then
+        RISCV_PREFIX="$prefix"
+        break
+    fi
+done
+
+# Allow override via environment variable
+if [ -n "${RISCV_TOOLCHAIN:-}" ]; then
+    RISCV_PREFIX="$RISCV_TOOLCHAIN"
+fi
+
+CC="${RISCV_PREFIX}-gcc"
+AR="${RISCV_PREFIX}-ar"
+RANLIB="${RISCV_PREFIX}-ranlib"
+OBJCOPY="${RISCV_PREFIX}-objcopy"
 
 # Check for TT-Metal SDK
 if [ -z "${TT_METAL_HOME:-}" ]; then
@@ -56,29 +77,54 @@ else
     TT_METAL_LIBS="-L$TT_METAL_HOME/build/lib"
 fi
 
+# RISC-V architecture flags
+# Targeting Tenstorrent Blackhole: RV64IMAC
+# - RV64: 64-bit base ISA
+# - I: Integer instructions
+# - M: Multiply/divide
+# - A: Atomic instructions
+# - C: Compressed instructions (16-bit)
+ARCH_FLAGS="-march=rv64imac -mabi=lp64"
+
 # Compiler settings
-CFLAGS_COMMON="-std=c99 -Wall -Wextra -march=rv64imac -mabi=lp64 -DBUILD_TT_METAL $TT_METAL_INCLUDES"
+CFLAGS_COMMON="-std=c99 -Wall -Wextra -Wno-unused-parameter"
+CFLAGS_COMMON="$CFLAGS_COMMON $ARCH_FLAGS"
+CFLAGS_COMMON="$CFLAGS_COMMON -DBUILD_RISCV -DUSE_UTF8"
+CFLAGS_COMMON="$CFLAGS_COMMON -static $TT_METAL_INCLUDES"  # Static linking for bare-metal
 CFLAGS_DEBUG="-g -O0 -DDEBUG"
 CFLAGS_RELEASE="-O3 -DNDEBUG"
 
 echo -e "${GREEN}=== Building Zork RISC-V Interpreter ===${NC}"
 echo "Build type: $BUILD_TYPE"
 echo "Build directory: $BUILD_DIR"
-echo "Compiler: $CC"
-echo "Target: RISC-V 64-bit"
+echo "Architecture: rv64imac (Tenstorrent Blackhole compatible)"
 
 # Check if compiler is available
-if ! command -v "$CC" &> /dev/null; then
-    echo -e "${RED}Error: RISC-V compiler '$CC' not found${NC}"
+if [ -z "$RISCV_PREFIX" ] || ! command -v "$CC" &> /dev/null; then
+    echo -e "${RED}ERROR: No RISC-V toolchain found!${NC}"
     echo ""
-    echo "Please install a RISC-V toolchain:"
-    echo "  - macOS: brew install riscv-tools"
-    echo "  - Ubuntu: apt-get install gcc-riscv64-unknown-elf"
+    echo "Please install a RISC-V toolchain. Options:"
     echo ""
-    echo "Or set RISCV_TOOLCHAIN environment variable to your toolchain prefix"
-    echo "Example: export RISCV_TOOLCHAIN=riscv64-linux-gnu"
+    echo "1. macOS (via Homebrew):"
+    echo "   brew tap riscv-software-src/riscv"
+    echo "   brew install riscv-gnu-toolchain"
+    echo ""
+    echo "2. Ubuntu/Debian:"
+    echo "   sudo apt-get install gcc-riscv64-linux-gnu"
+    echo ""
+    echo "3. Build from source:"
+    echo "   git clone https://github.com/riscv/riscv-gnu-toolchain"
+    echo "   cd riscv-gnu-toolchain"
+    echo "   ./configure --prefix=/opt/riscv --with-arch=rv64imac --with-abi=lp64"
+    echo "   make"
+    echo ""
+    echo "Or set RISCV_TOOLCHAIN environment variable:"
+    echo "   export RISCV_TOOLCHAIN=riscv64-linux-gnu"
+    echo ""
     exit 1
 fi
+
+echo "Compiler: $CC"
 
 # Clean if requested
 if [ "$BUILD_TYPE" = "clean" ]; then
@@ -101,30 +147,90 @@ mkdir -p "$BUILD_DIR"
 
 # Check if Frotz source is available
 if [ ! -d "src/zmachine/frotz" ]; then
-    echo -e "${YELLOW}Warning: Frotz source not found in src/zmachine/frotz${NC}"
-    echo -e "${YELLOW}Please run: git clone https://gitlab.com/DavidGriffith/frotz.git src/zmachine/frotz${NC}"
-    echo ""
-    echo "Cannot proceed with RISC-V build without source code."
+    echo -e "${RED}Error: Frotz source not found in src/zmachine/frotz${NC}"
+    echo "Please run: git clone --depth 1 https://gitlab.com/DavidGriffith/frotz.git src/zmachine/frotz"
     exit 1
 fi
 
-# Compile source files
-echo -e "${GREEN}Compiling source files for RISC-V...${NC}"
+echo -e "${GREEN}Compiling source files...${NC}"
 
-# This will be expanded once Frotz integration is complete
-# For now, just show what would be compiled
-echo "Source files to compile:"
-echo "  - src/zmachine/main.c (or Frotz core)"
-echo "  - src/io/io_ttmetal.c (TT-Metal host interface)"
-echo "  - src/parser/parser.c"
+# Collect source directories
+FROTZ_COMMON_SRC="src/zmachine/frotz/src/common"
+DUMB_SRC="src/zmachine/frotz/src/dumb"
+
+# Include directories
+INCLUDES="-I${FROTZ_COMMON_SRC} -I${DUMB_SRC}"
+
+# Compile Frotz common core
+echo "  Compiling Frotz Z-machine core..."
+FROTZ_OBJS=""
+for src in ${FROTZ_COMMON_SRC}/*.c; do
+    obj="$BUILD_DIR/frotz_$(basename ${src%.c}.o)"
+    echo "    $(basename $src)"
+    $CC $CFLAGS $INCLUDES -c "$src" -o "$obj"
+    FROTZ_OBJS="$FROTZ_OBJS $obj"
+done
+
+# Compile Frotz dumb interface
+echo "  Compiling Frotz dumb interface..."
+DUMB_OBJS=""
+for src in ${DUMB_SRC}/*.c; do
+    obj="$BUILD_DIR/dumb_$(basename ${src%.c}.o)"
+    echo "    $(basename $src)"
+    $CC $CFLAGS $INCLUDES -I${DUMB_SRC} -c "$src" -o "$obj"
+    DUMB_OBJS="$DUMB_OBJS $obj"
+done
+
+# Compile blorb library if needed
+BLORB_LIB="$BUILD_DIR/blorblib.a"
+echo "  Building blorb library..."
+$CC $CFLAGS -c "src/zmachine/frotz/src/blorb/blorblib.c" -o "$BUILD_DIR/blorblib.o"
+$AR rcs "$BLORB_LIB" "$BUILD_DIR/blorblib.o"
+$RANLIB "$BLORB_LIB"
+
+# Link everything together
+echo "  Linking..."
+$CC $CFLAGS \
+    $DUMB_OBJS \
+    $FROTZ_OBJS \
+    $BLORB_LIB \
+    -o "$BUILD_DIR/$BINARY_NAME"
+
+# Create symlink in project root for convenience
+ln -sf "$BUILD_DIR/$BINARY_NAME" "$BINARY_NAME"
+
+# Display binary information
+echo ""
+echo -e "${GREEN}=== Build complete! ===${NC}"
+echo ""
+echo "Executable: $PROJECT_ROOT/$BINARY_NAME"
+
+# Show binary info
+if command -v file &> /dev/null; then
+    echo ""
+    echo "Binary info:"
+    file "$BUILD_DIR/$BINARY_NAME"
+fi
+
+if command -v ${RISCV_PREFIX}-size &> /dev/null; then
+    echo ""
+    echo "Binary size:"
+    ${RISCV_PREFIX}-size "$BUILD_DIR/$BINARY_NAME"
+fi
+
+if command -v ${RISCV_PREFIX}-readelf &> /dev/null; then
+    echo ""
+    echo "ELF header:"
+    ${RISCV_PREFIX}-readelf -h "$BUILD_DIR/$BINARY_NAME" | grep -E "(Machine|Class|Data|Entry)"
+fi
 
 echo ""
-echo -e "${YELLOW}RISC-V build not yet fully implemented${NC}"
-echo "Waiting for Frotz integration (Phase 1.2)"
+echo "To test on QEMU:"
+echo "  qemu-riscv64 -L /usr/riscv64-linux-gnu ./$BINARY_NAME game/zork1.z3"
 echo ""
-echo "Next steps:"
-echo "  1. Clone Frotz: git clone https://gitlab.com/DavidGriffith/frotz.git src/zmachine/frotz"
-echo "  2. Create TT-Metal I/O layer: src/io/io_ttmetal.c"
-echo "  3. Update this script to compile full source tree"
-
-exit 0
+echo "To deploy to Tenstorrent:"
+echo "  # Copy to hardware environment with Wormhole/Blackhole card"
+echo "  # Use TT-Metal tools to load and execute on RISC-V cores"
+echo ""
+echo "To clean:"
+echo "  ./scripts/build_riscv.sh clean"
