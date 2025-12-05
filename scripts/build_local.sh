@@ -33,7 +33,7 @@ BINARY_NAME="zork-native"
 
 # Compiler settings
 CC="${CC:-cc}"
-CFLAGS_COMMON="-std=c99 -Wall -Wextra -Wno-unused-parameter -DBUILD_NATIVE -DUSE_UTF8"
+CFLAGS_COMMON="-std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-parameter -DBUILD_NATIVE -DUSE_UTF8"
 CFLAGS_DEBUG="-g -O0 -DDEBUG"
 CFLAGS_RELEASE="-O3 -DNDEBUG"
 

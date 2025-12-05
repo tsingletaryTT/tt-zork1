@@ -91,7 +91,7 @@ fi
 ARCH_FLAGS="-march=rv64imac -mabi=lp64"
 
 # Compiler settings
-CFLAGS_COMMON="-std=c99 -Wall -Wextra -Wno-unused-parameter"
+CFLAGS_COMMON="-std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-parameter"
 CFLAGS_COMMON="$CFLAGS_COMMON $ARCH_FLAGS"
 CFLAGS_COMMON="$CFLAGS_COMMON -DBUILD_RISCV -DUSE_UTF8"
 CFLAGS_COMMON="$CFLAGS_COMMON -static $TT_METAL_INCLUDES"  # Static linking for bare-metal
