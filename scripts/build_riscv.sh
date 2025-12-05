@@ -47,8 +47,9 @@ RISCV_PREFIXES=(
 RISCV_PREFIX=""
 for prefix in "${RISCV_PREFIXES[@]}"; do
     if command -v "${prefix}-gcc" &> /dev/null; then
-        # Test if the toolchain can compile a simple program with standard headers
-        if echo '#include <string.h>' | "${prefix}-gcc" -x c -c - -o /dev/null 2>/dev/null; then
+        # Test if the toolchain can compile with standard headers AND LP64 ABI
+        if echo '#include <string.h>
+int main() { return 0; }' | "${prefix}-gcc" -march=rv64imac -mabi=lp64 -x c -c - -o /dev/null 2>/dev/null; then
             RISCV_PREFIX="$prefix"
             break
         fi
@@ -110,10 +111,10 @@ if [ -z "$RISCV_PREFIX" ] || ! command -v "$CC" &> /dev/null; then
     echo "This usually means you have a bare-metal toolchain (riscv64-unknown-elf-gcc)"
     echo "without newlib/glibc installed."
     echo ""
-    echo "Recommended solution - install the Linux-targeted toolchain:"
+    echo "Recommended solution - install the Linux-targeted toolchain with libc:"
     echo ""
     echo "Ubuntu/Debian:"
-    echo "   sudo apt-get install gcc-riscv64-linux-gnu g++-riscv64-linux-gnu"
+    echo "   sudo apt-get install gcc-riscv64-linux-gnu g++-riscv64-linux-gnu libc6-dev-riscv64-cross"
     echo ""
     echo "macOS (via Homebrew):"
     echo "   brew tap riscv-software-src/riscv"

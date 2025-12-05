@@ -41,11 +41,13 @@ riscv64-unknown-elf-gcc --version
 ```bash
 # Install from package manager
 sudo apt-get update
-sudo apt-get install gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
+sudo apt-get install gcc-riscv64-linux-gnu g++-riscv64-linux-gnu libc6-dev-riscv64-cross
 
 # Verify installation
 riscv64-linux-gnu-gcc --version
 ```
+
+**Note**: The `libc6-dev-riscv64-cross` package provides the C library development files needed for LP64 ABI compilation.
 
 #### Option C: Build from Source (All Platforms)
 
