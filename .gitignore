@@ -1,0 +1,63 @@
+# Build artifacts
+build/
+build-native/
+build-riscv/
+*.o
+*.a
+*.so
+*.dylib
+
+# Executables
+zork-native
+zork-riscv
+zork
+
+# TT-Metal artifacts
+*.ttnn
+*.metalium
+
+# Model files (large, store separately)
+models/*.bin
+models/*.onnx
+models/*.pt
+models/*.safetensors
+
+# Test outputs
+tests/output/
+*.test
+*.log
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python artifacts (for TT-Metal Python tools)
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+
+# Debug files
+*.dSYM/
+*.pdb
+core
+*.core
+
+# Temporary files
+*.tmp
+*.bak
+.cache/
+
+# Build configuration
+.config
+local.mk
+
+# Keep model directory structure but ignore large files
+!models/.gitkeep
+!models/README.md

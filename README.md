@@ -1,3 +1,81 @@
+# Zork on Tenstorrent
+
+**A novel port of Zork I to run on Tenstorrent AI accelerators with LLM-based natural language parsing**
+
+This project ports the classic interactive fiction game Zork I to run on Tenstorrent Blackhole/Wormhole hardware, using a hybrid architecture where:
+- **RISC-V cores** run the Z-machine interpreter and game logic
+- **Tensix cores** run LLM inference for natural language understanding
+- **TT-Metal** provides the low-level programming framework
+
+## Quick Start
+
+### Local Development (Native Build)
+```bash
+# Build for local testing
+./scripts/build_local.sh
+
+# Run Zork
+./zork-native game/zork1.z3
+```
+
+### Hardware Deployment
+```bash
+# On Wormhole/Blackhole system after git pull
+./scripts/build_riscv.sh release
+./scripts/deploy.sh [wormhole|blackhole]
+```
+
+## Project Structure
+
+```
+tt-zork1/
+├── src/
+│   ├── zmachine/      # Frotz-based Z-machine interpreter
+│   ├── parser/        # Parser abstraction & LLM integration
+│   ├── io/            # I/O abstraction layer
+│   └── kernels/       # TT-Metal kernels for inference
+├── game/
+│   └── zork1.z3       # Compiled Z-machine bytecode
+├── scripts/
+│   ├── build_local.sh # Native build for testing
+│   ├── build_riscv.sh # Cross-compile for Tenstorrent
+│   └── deploy.sh      # Deploy to hardware
+├── docs/
+│   └── architecture.md # Detailed architecture documentation
+└── tests/
+    └── integration/   # Test suite
+```
+
+## Documentation
+
+- **[Architecture Documentation](docs/architecture.md)** - Detailed technical architecture
+- **[Implementation Plan](.claude/plans/)** - Phased implementation plan
+- **[Original Zork Source](#zork-i-source-code-collection)** - Historical Zork source information below
+
+## Development Status
+
+**Phase 1: Foundation** (In Progress)
+- ✅ Repository structure and build system
+- 🔄 Frotz interpreter integration
+- ⏳ I/O abstraction layer
+- ⏳ Hardware deployment
+
+**Phase 2: Hybrid Architecture** (Not Started)
+- ⏳ Parser abstraction
+- ⏳ Inference integration points
+
+**Phase 3: LLM Inference** (Not Started)
+- ⏳ Model selection and training
+- ⏳ TT-Metal inference kernels
+
+## Resources
+
+- [Frotz Z-machine Interpreter](https://gitlab.com/DavidGriffith/frotz)
+- [TT-Metal Documentation](https://github.com/tenstorrent/tt-metal)
+- [Z-machine Specification](https://www.ifwiki.org/Z-machine)
+
+---
+
 # Zork I Source Code Collection
 
 Zork I is a 1980 interactive fiction game written by Marc Blank, Dave Lebling, Bruce Daniels and Tim Anderson and published by Infocom.
