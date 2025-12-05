@@ -43,12 +43,15 @@ RISCV_PREFIXES=(
     "riscv64-unknown-linux-gnu"
 )
 
-# Find available RISC-V toolchain
+# Find available RISC-V toolchain that actually works
 RISCV_PREFIX=""
 for prefix in "${RISCV_PREFIXES[@]}"; do
     if command -v "${prefix}-gcc" &> /dev/null; then
-        RISCV_PREFIX="$prefix"
-        break
+        # Test if the toolchain can compile a simple program with standard headers
+        if echo '#include <string.h>' | "${prefix}-gcc" -x c -c - -o /dev/null 2>/dev/null; then
+            RISCV_PREFIX="$prefix"
+            break
+        fi
     fi
 done
 
@@ -101,25 +104,30 @@ echo "Architecture: rv64imac (Tenstorrent Blackhole compatible)"
 
 # Check if compiler is available
 if [ -z "$RISCV_PREFIX" ] || ! command -v "$CC" &> /dev/null; then
-    echo -e "${RED}ERROR: No RISC-V toolchain found!${NC}"
+    echo -e "${RED}ERROR: No working RISC-V toolchain found!${NC}"
     echo ""
-    echo "Please install a RISC-V toolchain. Options:"
+    echo "A RISC-V compiler was found, but it's missing standard library headers."
+    echo "This usually means you have a bare-metal toolchain (riscv64-unknown-elf-gcc)"
+    echo "without newlib/glibc installed."
     echo ""
-    echo "1. macOS (via Homebrew):"
+    echo "Recommended solution - install the Linux-targeted toolchain:"
+    echo ""
+    echo "Ubuntu/Debian:"
+    echo "   sudo apt-get install gcc-riscv64-linux-gnu g++-riscv64-linux-gnu"
+    echo ""
+    echo "macOS (via Homebrew):"
     echo "   brew tap riscv-software-src/riscv"
     echo "   brew install riscv-gnu-toolchain"
     echo ""
-    echo "2. Ubuntu/Debian:"
-    echo "   sudo apt-get install gcc-riscv64-linux-gnu"
-    echo ""
-    echo "3. Build from source:"
+    echo "Or build from source with newlib:"
     echo "   git clone https://github.com/riscv/riscv-gnu-toolchain"
     echo "   cd riscv-gnu-toolchain"
     echo "   ./configure --prefix=/opt/riscv --with-arch=rv64imac --with-abi=lp64"
     echo "   make"
     echo ""
-    echo "Or set RISCV_TOOLCHAIN environment variable:"
+    echo "Or manually specify a working toolchain:"
     echo "   export RISCV_TOOLCHAIN=riscv64-linux-gnu"
+    echo "   ./scripts/build_riscv.sh"
     echo ""
     exit 1
 fi
