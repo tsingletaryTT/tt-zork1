@@ -166,11 +166,30 @@ if [ ! -f "src/zmachine/frotz/src/common/defs.h" ] || [ ! -f "src/zmachine/frotz
     echo -e "${GREEN}Generating Frotz header files...${NC}"
     cd src/zmachine/frotz
     make defs.h hash.h 2>/dev/null || {
-        # If make fails, try running the generator directly
+        # If make fails, manually generate the files
         echo "  Generating defs.h..."
-        grep "^extern.*os_" src/common/*.h | sed 's/extern //' | sed 's/;$//' > src/common/defs.h
+        cat > src/common/defs.h << 'EOF'
+#ifndef COMMON_DEFINES_H
+#define COMMON_DEFINES_H
+#define VERSION "2.56pre"
+#define GIT_HASH "unknown"
+#define GIT_DATE "unknown"
+#define RELEASE_NOTES "Development release"
+#define UNIX
+#define MAX_UNDO_SLOTS 500
+#define MAX_FILE_NAME 80
+#define TEXT_BUFFER_SIZE 512
+#define INPUT_BUFFER_SIZE 200
+#define STACK_SIZE 1024
+#define USE_UTF8
+#endif /* COMMON_DEFINES_H */
+EOF
         echo "  Generating hash.h..."
-        echo "/* Auto-generated hash definitions */" > src/common/hash.h
+        cat > src/common/hash.h << 'EOF'
+#ifndef COMMON_HASH_H
+#define COMMON_HASH_H
+#endif /* COMMON_HASH_H */
+EOF
     }
     cd "$PROJECT_ROOT"
 fi
