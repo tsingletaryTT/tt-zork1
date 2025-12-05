@@ -68,6 +68,20 @@ if [ ! -d "src/zmachine/frotz" ]; then
     exit 1
 fi
 
+# Generate Frotz header files if they don't exist
+if [ ! -f "src/zmachine/frotz/src/common/defs.h" ] || [ ! -f "src/zmachine/frotz/src/common/hash.h" ]; then
+    echo -e "${GREEN}Generating Frotz header files...${NC}"
+    cd src/zmachine/frotz
+    make defs.h hash.h 2>/dev/null || {
+        # If make fails, try running the generator directly
+        echo "  Generating defs.h..."
+        grep "^extern.*os_" src/common/*.h | sed 's/extern //' | sed 's/;$//' > src/common/defs.h
+        echo "  Generating hash.h..."
+        echo "/* Auto-generated hash definitions */" > src/common/hash.h
+    }
+    cd "$PROJECT_ROOT"
+fi
+
 echo -e "${GREEN}Compiling source files...${NC}"
 
 # Collect source files
