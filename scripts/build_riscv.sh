@@ -230,10 +230,10 @@ for src in ${DUMB_SRC}/*.c; do
     DUMB_OBJS="$DUMB_OBJS $obj"
 done
 
-# Compile blorb library if needed
-BLORB_LIB="$BUILD_DIR/blorblib.a"
+# Compile blorb library
 echo "  Building blorb library..."
-$CC $CFLAGS -c "src/zmachine/frotz/src/blorb/blorblib.c" -o "$BUILD_DIR/blorblib.o"
+$CC $CFLAGS $INCLUDES -c "src/zmachine/frotz/src/blorb/blorblib.c" -o "$BUILD_DIR/blorblib.o"
+BLORB_LIB="$BUILD_DIR/blorblib.a"
 $AR rcs "$BLORB_LIB" "$BUILD_DIR/blorblib.o"
 $RANLIB "$BLORB_LIB"
 

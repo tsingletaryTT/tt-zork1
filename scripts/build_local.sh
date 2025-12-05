@@ -140,13 +140,12 @@ for src in ${DUMB_SRC}/*.c; do
     DUMB_OBJS="$DUMB_OBJS $obj"
 done
 
-# Compile blorb library if needed
-BLORB_LIB="src/zmachine/frotz/src/blorb/blorblib.a"
-if [ ! -f "$BLORB_LIB" ]; then
-    echo "  Building blorb library..."
-    $CC $CFLAGS -c "src/zmachine/frotz/src/blorb/blorblib.c" -o "src/zmachine/frotz/src/blorb/blorblib.o"
-    ar rcs "$BLORB_LIB" "src/zmachine/frotz/src/blorb/blorblib.o"
-fi
+# Compile blorb library
+echo "  Building blorb library..."
+$CC $CFLAGS $INCLUDES -c "src/zmachine/frotz/src/blorb/blorblib.c" -o "$BUILD_DIR/blorblib.o"
+BLORB_LIB="$BUILD_DIR/blorblib.a"
+ar rcs "$BLORB_LIB" "$BUILD_DIR/blorblib.o"
+ranlib "$BLORB_LIB"
 
 # Link everything together
 echo "  Linking..."
