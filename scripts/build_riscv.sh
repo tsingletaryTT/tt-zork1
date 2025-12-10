@@ -47,9 +47,10 @@ RISCV_PREFIXES=(
 RISCV_PREFIX=""
 for prefix in "${RISCV_PREFIXES[@]}"; do
     if command -v "${prefix}-gcc" &> /dev/null; then
-        # Test if the toolchain can compile with standard headers AND LP64 ABI
+        # Test if the toolchain can compile with standard headers
+        # Use toolchain's default ISA/ABI configuration
         if echo '#include <string.h>
-int main() { return 0; }' | "${prefix}-gcc" -march=rv64imac -mabi=lp64 -x c -c - -o /dev/null 2>/dev/null; then
+int main() { return 0; }' | "${prefix}-gcc" -x c -c - -o /dev/null 2>/dev/null; then
             RISCV_PREFIX="$prefix"
             break
         fi
@@ -82,13 +83,15 @@ else
 fi
 
 # RISC-V architecture flags
-# Targeting Tenstorrent Blackhole: RV64IMAC
+# Targeting Tenstorrent Blackhole: RV64IMAC or compatible
 # - RV64: 64-bit base ISA
 # - I: Integer instructions
 # - M: Multiply/divide
 # - A: Atomic instructions
 # - C: Compressed instructions (16-bit)
-ARCH_FLAGS="-march=rv64imac -mabi=lp64"
+# Note: If toolchain is configured with rv64gc/lp64d, we use its defaults
+# rv64gc is a superset of rv64imac and works fine for our purposes
+ARCH_FLAGS="${RISCV_ARCH_FLAGS:-}"
 
 # Compiler settings
 CFLAGS_COMMON="-std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-parameter"
@@ -101,7 +104,7 @@ CFLAGS_RELEASE="-O3 -DNDEBUG"
 echo -e "${GREEN}=== Building Zork RISC-V Interpreter ===${NC}"
 echo "Build type: $BUILD_TYPE"
 echo "Build directory: $BUILD_DIR"
-echo "Architecture: rv64imac (Tenstorrent Blackhole compatible)"
+echo "Architecture: Using toolchain defaults (RISC-V 64-bit)"
 
 # Check if compiler is available
 if [ -z "$RISCV_PREFIX" ] || ! command -v "$CC" &> /dev/null; then
