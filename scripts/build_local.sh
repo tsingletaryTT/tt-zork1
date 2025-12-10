@@ -81,6 +81,7 @@ if [ $NEEDS_REGEN -eq 1 ]; then
     cd src/zmachine/frotz
     make defs.h hash.h 2>/dev/null || {
         # If make fails, manually generate the files
+        mkdir -p src/common
         echo "  Generating defs.h..."
         cat > src/common/defs.h << 'EOF'
 #ifndef COMMON_DEFINES_H
