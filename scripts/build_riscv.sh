@@ -94,9 +94,12 @@ fi
 ARCH_FLAGS="${RISCV_ARCH_FLAGS:-}"
 
 # Compiler settings
+# For bare-metal toolchains without full libc, use Frotz's compatibility functions
 CFLAGS_COMMON="-std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-parameter"
 CFLAGS_COMMON="$CFLAGS_COMMON $ARCH_FLAGS"
+CFLAGS_COMMON="$CFLAGS_COMMON -include string.h"  # Force include string.h for newlib
 CFLAGS_COMMON="$CFLAGS_COMMON -DBUILD_RISCV -DUSE_UTF8"
+CFLAGS_COMMON="$CFLAGS_COMMON -DNO_BASENAME -DNO_STRRCHR"  # Use Frotz compatibility functions
 CFLAGS_COMMON="$CFLAGS_COMMON -static $TT_METAL_INCLUDES"  # Static linking for bare-metal
 CFLAGS_DEBUG="-g -O0 -DDEBUG"
 CFLAGS_RELEASE="-O3 -DNDEBUG"
