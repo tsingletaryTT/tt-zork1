@@ -103,22 +103,121 @@ Previous text encoding issue was resolved by adding _DEFAULT_SOURCE to CFLAGS, w
 - Statically linked (ready for bare-metal deployment)
 - Includes debug symbols (can be stripped for production)
 
-**Next Steps:**
-- Deploy to Tenstorrent hardware with RISC-V cores
-- Test execution in TT-Metal environment
-- Verify Z-machine runs correctly on hardware
+#### Phase 2: LLM-Backed Natural Language Parser (Complete ✅ - Jan 12, 2026)
+**Goal**: Integrate an LLM to translate natural language into Zork commands, making the game accessible via conversational input.
+
+**What Happened:**
+- Built complete LLM translation system with 10 new modules (~3000 lines of heavily-documented code)
+- Integrated with Frotz's input/output system
+- Prompts stored in editable text files (educational focus)
+- Full conversation history captured for context
+- Graceful fallback to standard parser if LLM unavailable
+
+**Architecture:**
+```
+User: "I want to open the mailbox"
+  ↓
+[Capture game history] → Context Manager
+  ↓
+[Load prompts] → Prompt Loader (from prompts/*.txt)
+  ↓
+[Format request] → JSON Builder
+  ↓
+[API call] → LLM Client (libcurl → localhost:1234)
+  ↓
+LLM Response: "open mailbox"
+  ↓
+[Display translation]
+  ↓
+Z-machine executes → Game continues
+```
+
+**Modules Implemented:**
+1. **Prompt Loader** (`src/llm/prompt_loader.{c,h}`) - Loads prompts from text files, not hardcoded!
+2. **Context Manager** (`src/llm/context.{c,h}`) - Circular buffer storing last 20 turns
+3. **Output Capture** (`src/llm/output_capture.{c,h}`) - Hooks into Frotz display functions
+4. **JSON Helper** (`src/llm/json_helper.{c,h}`) - Minimal JSON for OpenAI API (no heavy deps)
+5. **LLM Client** (`src/llm/llm_client.{c,h}`) - HTTP client using libcurl
+6. **Input Translator** (`src/llm/input_translator.{c,h}`) - Main orchestrator
+7. **Prompts** (`prompts/`) - User-editable prompt files + educational README
+
+**Educational Features:**
+- Every file has 100+ lines of explanatory comments
+- Prompts in separate `.txt` files - no recompilation to iterate!
+- `prompts/README.md` teaches prompt engineering
+- Statistics tracking (success rate, fallbacks)
+- All errors non-fatal - game always playable
+
+**Integration Points:**
+- `dinput.c:os_read_line()` - Intercepts user input for translation
+- `doutput.c:os_display_string()` - Captures game output for context
+- `dinit.c:os_init_screen()` - Initializes LLM system
+- `dinit.c:os_quit()` - Shutdown and statistics
+
+**Configuration (Environment Variables):**
+- `ZORK_LLM_MOCK` - Set to "1" for mock mode (first 4 screens, no server needed)
+- `ZORK_LLM_URL` - API endpoint (default: http://localhost:1234/v1/chat/completions)
+- `ZORK_LLM_MODEL` - Model name (default: "zork-assistant")
+- `ZORK_LLM_API_KEY` - Optional for remote APIs
+- `ZORK_LLM_ENABLED` - Set to "0" to disable
+
+**Testing:**
+```bash
+# Option 1: Mock mode (no LLM server needed - first 4 screens only)
+export ZORK_LLM_MOCK=1
+./zork-native game/zork1.z3
+
+# Option 2: Real LLM (start local LLM server like LM Studio on port 1234)
+export ZORK_LLM_URL="http://localhost:1234/v1/chat/completions"
+export ZORK_LLM_MODEL="your-model-name"
+./zork-native game/zork1.z3
+
+# Try natural language:
+> I want to open the mailbox
+[LLM → open mailbox]
+Opening the small mailbox reveals a leaflet.
+
+> Please pick up the leaflet and read it
+[LLM → take leaflet, read leaflet]
+Taken. "WELCOME TO ZORK! ..."
+
+# Statistics displayed on exit:
+=== Translation Statistics ===
+Total attempts:  4
+Successful:      4
+Fallbacks:       0
+Success rate:    100%
+```
+
+**Future-Ready Design:**
+- Modular architecture supports LLM-to-LLM gameplay (autonomous agents)
+- Native-only for now, but structure supports future RISC-V port
+- Could swap HTTP client for TT-Metal host communication
+
+**Files Modified:**
+- `src/zmachine/frotz/src/dumb/dinput.c` - Added translation call
+- `src/zmachine/frotz/src/dumb/doutput.c` - Added output capture
+- `src/zmachine/frotz/src/dumb/dinit.c` - Added init/shutdown
+- `scripts/build_local.sh` - Added libcurl detection and LLM compilation
+
+**Dependencies Added:**
+- libcurl (for HTTP API calls)
 
 ### Project Status
 
 - [x] Phase 1.1: Repository structure and build system
 - [x] Phase 1.2: Frotz integration - **FULLY FUNCTIONAL**
 - [x] Phase 1.3: RISC-V cross-compilation - **COMPLETE**
-- [ ] Phase 1.4: Hardware deployment and testing (Ready to start)
-- [ ] Phase 2: Parser abstraction layer
-- [ ] Phase 3: LLM inference integration
-- [ ] Phase 4: Optimization and benchmarking
+- [x] Phase 2: LLM Natural Language Parser - **COMPLETE** ✅
+  - 10 modules implemented (~3000 lines)
+  - Mock mode for testing without LLM server
+  - Full conversation history context
+  - Graceful fallback on errors
+- [ ] Phase 3: Hardware deployment and testing (Ready to start)
+- [ ] Phase 4: Tensix inference integration (Future)
+- [ ] Phase 5: Optimization and benchmarking
 
-**Current Milestone**: RISC-V binary ready for hardware deployment! Native and cross-compiled builds both functional.
+**Current Milestone**: LLM natural language interface working! Can play Zork using conversational input like "I want to open the mailbox". Native build complete, RISC-V ready for hardware deployment.
 
 ### Hardware Access
 

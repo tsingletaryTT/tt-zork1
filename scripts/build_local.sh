@@ -37,6 +37,22 @@ CFLAGS_COMMON="-std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-parameter -D
 CFLAGS_DEBUG="-g -O0 -DDEBUG"
 CFLAGS_RELEASE="-O3 -DNDEBUG"
 
+# Check for libcurl (needed for LLM features)
+if command -v pkg-config &> /dev/null && pkg-config --exists libcurl; then
+    echo "libcurl: Found"
+    CURL_CFLAGS=$(pkg-config --cflags libcurl)
+    CURL_LIBS=$(pkg-config --libs libcurl)
+else
+    echo -e "${YELLOW}Warning: libcurl not found. LLM features will be disabled.${NC}"
+    echo "To install libcurl:"
+    echo "  macOS:   brew install curl"
+    echo "  Ubuntu:  sudo apt-get install libcurl4-openssl-dev"
+    echo "  Fedora:  sudo dnf install libcurl-devel"
+    echo ""
+    CURL_CFLAGS=""
+    CURL_LIBS=""
+fi
+
 echo -e "${GREEN}=== Building Zork Native Interpreter ===${NC}"
 echo "Build type: $BUILD_TYPE"
 echo "Build directory: $BUILD_DIR"
@@ -53,9 +69,9 @@ fi
 
 # Select build flags
 if [ "$BUILD_TYPE" = "release" ]; then
-    CFLAGS="$CFLAGS_COMMON $CFLAGS_RELEASE"
+    CFLAGS="$CFLAGS_COMMON $CFLAGS_RELEASE $CURL_CFLAGS"
 else
-    CFLAGS="$CFLAGS_COMMON $CFLAGS_DEBUG"
+    CFLAGS="$CFLAGS_COMMON $CFLAGS_DEBUG $CURL_CFLAGS"
 fi
 
 # Create build directory
@@ -141,6 +157,21 @@ for src in ${DUMB_SRC}/*.c; do
     DUMB_OBJS="$DUMB_OBJS $obj"
 done
 
+# Compile LLM subsystem (if libcurl available)
+if [ -n "$CURL_LIBS" ]; then
+    echo "  Compiling LLM subsystem..."
+    LLM_SRC="src/llm"
+    LLM_OBJS=""
+    for src in ${LLM_SRC}/*.c; do
+        obj="$BUILD_DIR/llm_$(basename ${src%.c}.o)"
+        echo "    $(basename $src)"
+        $CC $CFLAGS $INCLUDES -I${LLM_SRC} -c "$src" -o "$obj"
+        LLM_OBJS="$LLM_OBJS $obj"
+    done
+else
+    LLM_OBJS=""
+fi
+
 # Compile blorb library
 echo "  Building blorb library..."
 $CC $CFLAGS $INCLUDES -c "src/zmachine/frotz/src/blorb/blorblib.c" -o "$BUILD_DIR/blorblib.o"
@@ -153,7 +184,9 @@ echo "  Linking..."
 $CC $CFLAGS \
     $DUMB_OBJS \
     $FROTZ_OBJS \
+    $LLM_OBJS \
     $BLORB_LIB \
+    $CURL_LIBS \
     -o "$BUILD_DIR/$BINARY_NAME"
 
 # Create symlink in project root for convenience
