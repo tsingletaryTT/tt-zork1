@@ -2,6 +2,38 @@
 
 This directory contains the prompts used by the LLM-backed natural language parser for Zork.
 
+## Design Philosophy: Let the Game Handle Ambiguity
+
+**Key Principle**: The LLM translates literally. It does NOT try to resolve ambiguity using context.
+
+**Why?** Because Zork already handles ambiguity perfectly:
+```
+> take it
+What do you want to take?
+> the lamp
+Taken.
+```
+
+This is BETTER than having the LLM guess:
+```
+> take it
+[LLM guesses "mailbox" from context]
+Taken.  (Wrong! You wanted the lamp!)
+```
+
+**Our Approach for Small Models (Qwen2.5:0.5b)**:
+- ✅ Context-free translation (no conversation history)
+- ✅ Pure input → command mapping
+- ✅ Let game ask clarifying questions
+- ✅ Clean, predictable, reliable
+- ❌ No smart inference (that's the game's job!)
+
+**Trade-offs**:
+- Pronouns like "take it" will prompt game to ask for clarification
+- Users learn to be more explicit ("take the lamp")
+- More natural dialogue flow (game guides the player)
+- Works reliably with tiny models
+
 ## Educational Purpose
 
 **IMPORTANT**: This is an educational project! These prompts are stored as plain text files so you can:

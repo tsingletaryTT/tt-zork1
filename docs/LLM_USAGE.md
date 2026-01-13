@@ -43,13 +43,19 @@ The windows are boarded and can't be opened.
 
 ### Mode 2: Real LLM (Full Experience)
 
-Use a local LLM server (LM Studio, Ollama, etc.) for full natural language translation:
+Use Ollama with Qwen2.5:0.5b for full natural language translation:
 
 ```bash
-# Start your LLM server first (e.g., LM Studio on port 1234)
-# Then run Zork:
-export ZORK_LLM_URL="http://localhost:1234/v1/chat/completions"
-export ZORK_LLM_MODEL="your-model-name"
+# Install and start Ollama (if not already running)
+brew install ollama  # macOS
+ollama pull qwen2.5:0.5b
+
+# Run Zork with LLM (easy way)
+./run-zork-llm.sh
+
+# Or manually:
+export ZORK_LLM_URL="http://localhost:11434/v1/chat/completions"
+export ZORK_LLM_MODEL="qwen2.5:0.5b"
 ./zork-native game/zork1.z3
 ```
 

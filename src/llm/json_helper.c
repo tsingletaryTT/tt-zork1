@@ -262,10 +262,84 @@ int json_parse_content(const char *json_response, char *output, size_t output_si
     output[content_len] = '\0';
 
     /*
-     * TODO: Unescape the content string
-     * (Handle \\n → \n, \\" → ", etc.)
-     * For now, most LLMs don't use escapes in command responses
+     * Unescape JSON escape sequences
+     * Handle: \\n → \n, \\" → ", \\\\ → \, etc.
      */
+    char *write_ptr = output;
+    char *read_ptr = output;
+    while (*read_ptr) {
+        if (*read_ptr == '\\' && *(read_ptr + 1)) {
+            /* Found escape sequence */
+            read_ptr++; /* Skip backslash */
+            switch (*read_ptr) {
+                case 'n': *write_ptr++ = '\n'; break;
+                case 't': *write_ptr++ = '\t'; break;
+                case 'r': *write_ptr++ = '\r'; break;
+                case '"': *write_ptr++ = '"'; break;
+                case '\\': *write_ptr++ = '\\'; break;
+                default: *write_ptr++ = *read_ptr; break; /* Copy unknown escapes as-is */
+            }
+            read_ptr++;
+        } else {
+            *write_ptr++ = *read_ptr++;
+        }
+    }
+    *write_ptr = '\0';
+
+    /*
+     * Sanitize the extracted command (defensive parsing!)
+     * This handles quirks from different LLMs that might:
+     * - Wrap output in quotes
+     * - Add extra whitespace
+     * - Include newlines
+     * - Add programming syntax like parentheses
+     */
+
+    /* 1. Strip leading whitespace */
+    read_ptr = output;
+    while (*read_ptr && isspace((unsigned char)*read_ptr)) {
+        read_ptr++;
+    }
+
+    /* 2. Remove leading quotes */
+    while (*read_ptr == '"' || *read_ptr == '\'') {
+        read_ptr++;
+    }
+
+    /* 3. Move cleaned start to beginning of buffer */
+    if (read_ptr != output) {
+        memmove(output, read_ptr, strlen(read_ptr) + 1);
+    }
+
+    /* 4. Strip trailing whitespace, quotes, and other artifacts */
+    write_ptr = output + strlen(output) - 1;
+    while (write_ptr >= output) {
+        unsigned char c = (unsigned char)*write_ptr;
+        if (isspace(c) || c == '"' || c == '\'' || c == ')' || c == ']') {
+            *write_ptr = '\0';
+            write_ptr--;
+        } else {
+            break;
+        }
+    }
+
+    /* 5. Remove function call syntax if present: "quit()" → "quit" */
+    write_ptr = output;
+    while (*write_ptr && *write_ptr != '(') {
+        write_ptr++;
+    }
+    if (*write_ptr == '(') {
+        *write_ptr = '\0'; /* Truncate at opening paren */
+    }
+
+    /* 6. Replace internal newlines with commas (for multi-command responses) */
+    write_ptr = output;
+    while (*write_ptr) {
+        if (*write_ptr == '\n' || *write_ptr == '\r') {
+            *write_ptr = ',';
+        }
+        write_ptr++;
+    }
 
     return 0;
 }

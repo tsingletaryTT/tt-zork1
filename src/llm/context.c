@@ -176,25 +176,42 @@ int context_get_formatted(char *buffer, size_t buffer_size) {
     size_t buffer_pos = 0;
 
     /*
-     * Read turns from oldest to newest
+     * MODIFIED: Only return the LAST output (most recent game text)
      *
-     * If buffer not full: start from index 0
-     * If buffer full: start from write_index (oldest unoverwritten)
+     * Small models (like Qwen2.5:0.5b) get confused by full conversation history.
+     * They try to "complete" previous actions instead of just translating new input.
+     *
+     * Solution: Only send the immediate previous game output as context.
+     * This gives enough info for references like "it" or "the leaflet" without
+     * overwhelming the model.
      */
+
+    if (context.count == 0) {
+        strcpy(buffer, "(No previous output)");
+        return 0;
+    }
+
+    /* Get the most recent turn (last written) */
+    size_t last_index = (context.write_index + context.capacity - 1) % context.capacity;
+    turn_t *turn = &context.turns[last_index];
+
+    /* Just copy the last game output, nothing else */
+    strncpy(buffer, turn->output, buffer_size - 1);
+    buffer[buffer_size - 1] = '\0';
+    return 0;
+
+    /* OLD CODE - commented out, kept for reference if we need full history with larger models
     size_t start_index = (context.count < context.capacity) ? 0 : context.write_index;
     size_t turns_to_read = context.count;
 
     for (size_t i = 0; i < turns_to_read; i++) {
-        /* Calculate actual index in circular buffer */
         size_t index = (start_index + i) % context.capacity;
         turn_t *turn = &context.turns[index];
 
-        /* Only include turns that have user input (complete turns) */
         if (!turn->has_input) {
             continue;
         }
 
-        /* Format: "Turn N Output: ...\nTurn N Input: ... (translated: ...)\n" */
         char turn_text[2048];
         int written;
 
@@ -212,21 +229,19 @@ int context_get_formatted(char *buffer, size_t buffer_size) {
                               i + 1, turn->user_input);
         }
 
-        /* Check if it fits in output buffer */
         if (buffer_pos + written >= buffer_size - 1) {
-            /* Truncate */
             strncpy(buffer + buffer_pos, turn_text, buffer_size - buffer_pos - 1);
             buffer[buffer_size - 1] = '\0';
             fprintf(stderr, "Warning: Context truncated in formatting\n");
             return -1;
         }
 
-        /* Append to buffer */
         strcpy(buffer + buffer_pos, turn_text);
         buffer_pos += written;
     }
 
     return 0;
+    END OF OLD CODE */
 }
 
 void context_clear(void) {

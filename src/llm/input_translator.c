@@ -69,8 +69,12 @@ static struct {
     int fallbacks;
 } stats = {0};
 
-/* Maximum number of turns to track (configurable) */
-#define DEFAULT_MAX_TURNS 20
+/* Maximum number of turns to track (configurable)
+ * NOTE: Reduced to 3 for small models like Qwen2.5:0.5b
+ * Too much context confuses small models - they try to "complete" previous actions
+ * Larger models can handle 10-20 turns
+ */
+#define DEFAULT_MAX_TURNS 3
 
 int translator_init(void) {
     fprintf(stderr, "\n=== Initializing LLM Translation System ===\n");

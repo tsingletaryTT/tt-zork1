@@ -1,5 +1,1 @@
-[GAME CONTEXT - Last 20 turns]
-{CONTEXT}
-
-[USER INPUT]
-Translate this to Zork commands: {INPUT}
+{INPUT}
