@@ -172,6 +172,17 @@ else
     LLM_OBJS=""
 fi
 
+# Compile journey tracking subsystem
+echo "  Compiling journey tracking subsystem..."
+JOURNEY_SRC="src/journey"
+JOURNEY_OBJS=""
+for src in ${JOURNEY_SRC}/*.c; do
+    obj="$BUILD_DIR/journey_$(basename ${src%.c}.o)"
+    echo "    $(basename $src)"
+    $CC $CFLAGS $INCLUDES -I${JOURNEY_SRC} -c "$src" -o "$obj"
+    JOURNEY_OBJS="$JOURNEY_OBJS $obj"
+done
+
 # Compile blorb library
 echo "  Building blorb library..."
 $CC $CFLAGS $INCLUDES -c "src/zmachine/frotz/src/blorb/blorblib.c" -o "$BUILD_DIR/blorblib.o"
@@ -185,6 +196,7 @@ $CC $CFLAGS \
     $DUMB_OBJS \
     $FROTZ_OBJS \
     $LLM_OBJS \
+    $JOURNEY_OBJS \
     $BLORB_LIB \
     $CURL_LIBS \
     -o "$BUILD_DIR/$BINARY_NAME"

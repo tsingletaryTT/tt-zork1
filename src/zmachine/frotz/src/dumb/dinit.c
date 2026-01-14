@@ -24,9 +24,13 @@
 #include "dfrotz.h"
 #include "dblorb.h"
 
-/* LLM Translation System */
+/* LLM Translation System & Journey Tracking */
 #ifdef BUILD_NATIVE
 #include "../../../../llm/input_translator.h"
+#include "../../../../journey/monitor.h"
+#include "../../../../journey/tracker.h"
+#include "../../../../journey/game_state.h"
+#include "../../../../journey/map_generator.h"
 #endif
 
 extern f_setup_t f_setup;
@@ -311,6 +315,18 @@ void os_init_screen(void)
 	/* Initialize LLM translation system (if enabled) */
 #ifdef BUILD_NATIVE
 	translator_init();
+
+	/* Initialize journey tracking system */
+	if (monitor_init() != 0) {
+		fprintf(stderr, "Warning: Journey tracking initialization failed\n");
+		/* Continue anyway - game works without journey tracking */
+	}
+
+	/* Initialize game state detection */
+	if (game_state_init() != 0) {
+		fprintf(stderr, "Warning: Game state detection initialization failed\n");
+		/* Continue anyway - game works without this feature */
+	}
 #endif
 } /* os_init_screen */
 
@@ -334,6 +350,28 @@ void os_quit(int status)
 	/* Shutdown LLM translation system and print statistics */
 #ifdef BUILD_NATIVE
 	translator_shutdown();
+
+	/* Check if we should display journey map before quitting */
+	if (game_state_should_show_map()) {
+		/* Generate and display the journey map */
+		journey_history_t *history = journey_get_history();
+		if (history && history->count > 0) {
+			char map_buffer[8192];  /* Larger buffer for 2D spatial map */
+			int result = map_generate(history, map_buffer, sizeof(map_buffer));
+
+			if (result == 0) {
+				fprintf(stderr, "%s", map_buffer);
+			} else {
+				fprintf(stderr, "\n[Error generating map: code %d]\n", result);
+			}
+		} else {
+			fprintf(stderr, "\n[No journey to map]\n");
+		}
+	}
+
+	/* Shutdown game systems */
+	game_state_shutdown();
+	monitor_shutdown();
 #endif
 
 	exit(status);

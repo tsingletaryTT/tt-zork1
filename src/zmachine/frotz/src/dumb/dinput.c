@@ -24,12 +24,94 @@
 
 #include "dfrotz.h"
 
-/* LLM Translation System */
+/* LLM Translation System & Journey Tracking */
 #ifdef BUILD_NATIVE
 #include "../../../../llm/input_translator.h"
+#include "../../../../journey/monitor.h"
+#include "../../../../journey/tracker.h"  /* For DIR_* constants */
+#include "../../../../journey/game_state.h"
 #endif
 
 extern f_setup_t f_setup;
+
+#ifdef BUILD_NATIVE
+/**
+ * Helper: Detect direction commands for journey tracking
+ *
+ * Analyzes the user's command to detect if they're moving in a direction.
+ * This allows us to record which direction was taken when the location changes.
+ *
+ * Detects:
+ * - Cardinal directions: north, south, east, west
+ * - Vertical: up, down
+ * - Relative: in, out
+ * - Abbreviations: n, s, e, w, u, d
+ *
+ * @param command - The command string to analyze (lowercase for matching)
+ */
+static void detect_direction_command(const char *command) {
+	if (!command || !*command) {
+		return;
+	}
+
+	/* Convert to lowercase for comparison */
+	char lower_cmd[256];
+	strncpy(lower_cmd, command, sizeof(lower_cmd) - 1);
+	lower_cmd[sizeof(lower_cmd) - 1] = '\0';
+	for (char *p = lower_cmd; *p; p++) {
+		*p = tolower(*p);
+	}
+
+	/* Detect direction commands
+	 * Note: We check full words first, then abbreviations
+	 * This handles "north", "go north", "walk north", etc.
+	 */
+	if (strstr(lower_cmd, "north")) {
+		monitor_set_direction(DIR_NORTH);
+	} else if (strstr(lower_cmd, "south")) {
+		monitor_set_direction(DIR_SOUTH);
+	} else if (strstr(lower_cmd, "east")) {
+		monitor_set_direction(DIR_EAST);
+	} else if (strstr(lower_cmd, "west")) {
+		monitor_set_direction(DIR_WEST);
+	} else if (strstr(lower_cmd, "up")) {
+		monitor_set_direction(DIR_UP);
+	} else if (strstr(lower_cmd, "down")) {
+		monitor_set_direction(DIR_DOWN);
+	} else if (strstr(lower_cmd, " in") || !strcmp(lower_cmd, "in")) {
+		monitor_set_direction(DIR_IN);
+	} else if (strstr(lower_cmd, "out")) {
+		monitor_set_direction(DIR_OUT);
+	} else if (strstr(lower_cmd, "northeast") || strstr(lower_cmd, "ne")) {
+		monitor_set_direction(DIR_NORTHEAST);
+	} else if (strstr(lower_cmd, "northwest") || strstr(lower_cmd, "nw")) {
+		monitor_set_direction(DIR_NORTHWEST);
+	} else if (strstr(lower_cmd, "southeast") || strstr(lower_cmd, "se")) {
+		monitor_set_direction(DIR_SOUTHEAST);
+	} else if (strstr(lower_cmd, "southwest") || strstr(lower_cmd, "sw")) {
+		monitor_set_direction(DIR_SOUTHWEST);
+	}
+	/* Single letter abbreviations - check these last to avoid false positives */
+	else if (!strcmp(lower_cmd, "n")) {
+		monitor_set_direction(DIR_NORTH);
+	} else if (!strcmp(lower_cmd, "s")) {
+		monitor_set_direction(DIR_SOUTH);
+	} else if (!strcmp(lower_cmd, "e")) {
+		monitor_set_direction(DIR_EAST);
+	} else if (!strcmp(lower_cmd, "w")) {
+		monitor_set_direction(DIR_WEST);
+	} else if (!strcmp(lower_cmd, "u")) {
+		monitor_set_direction(DIR_UP);
+	} else if (!strcmp(lower_cmd, "d")) {
+		monitor_set_direction(DIR_DOWN);
+	} else {
+		/* Not a direction command - set to unknown
+		 * The location change will be recorded with DIR_UNKNOWN
+		 */
+		monitor_set_direction(DIR_UNKNOWN);
+	}
+}
+#endif
 
 static char runtime_usage[] =
 	"DUMB-FROTZ runtime help:\n"
@@ -497,6 +579,31 @@ zchar os_read_line (int UNUSED (max), zchar *buf, int timeout, int UNUSED(width)
 			 */
 		}
 		/* If translation failed, read_line_buffer unchanged (fallback) */
+	}
+
+	/*
+	 * Journey Tracking: Detect Direction Commands
+	 *
+	 * Analyze the finalized command (after LLM translation if enabled) to
+	 * detect if the player is moving in a direction. This allows us to record
+	 * the direction taken when the location change callback fires.
+	 */
+	detect_direction_command(read_line_buffer);
+
+	/*
+	 * Game State: Detect Quit Command
+	 *
+	 * If user types "quit", mark it as intentional user quit
+	 * so we don't show journey map (only show for death/victory).
+	 */
+	char lower_cmd[256];
+	strncpy(lower_cmd, read_line_buffer, sizeof(lower_cmd) - 1);
+	lower_cmd[sizeof(lower_cmd) - 1] = '\0';
+	for (char *p = lower_cmd; *p; p++) {
+		*p = tolower(*p);
+	}
+	if (!strcmp(lower_cmd, "quit") || !strcmp(lower_cmd, "q")) {
+		game_state_set_user_quit();
 	}
 #endif
 

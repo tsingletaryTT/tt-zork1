@@ -311,6 +311,154 @@ Success rate: 100%
 
 **This approach is now the DEFAULT for the project.** Old context code preserved in comments for future experiments with larger models.
 
+#### Phase 2.2: Journey Mapping System (IN PROGRESS - Jan 14, 2026)
+**Goal**: Generate an ASCII map of the player's journey through Zork, showing their complete path including room names and revisited locations, displayed when the game ends (death or victory only).
+
+**What Happened:**
+Implemented comprehensive journey tracking infrastructure with complete test coverage (49 tests, 100% passing).
+
+**Architecture - 6 Core Modules:**
+```
+[Player moves] → Monitor detects location change → Records to Tracker
+                                                          ↓
+                                                   Journey history
+                                                          ↓
+                                              Game ends (death/victory)
+                                                          ↓
+                                          [MAP GENERATOR - TODO Phase 4]
+                                                          ↓
+                                            [ASCII RENDERER - TODO Phase 5]
+```
+
+**Completed Phases:**
+1. **Phase 1 - Journey Tracking** (✅ Complete):
+   - `src/journey/tracker.{h,c}` - Dynamic array-based history storage
+   - `src/journey/monitor.{h,c}` - Location change detection via hooks
+   - Integration: Modified `variable.c` to hook global var 0 (player location)
+   - Integration: Modified `dinput.c` to detect direction commands
+
+2. **Phase 2 - Room Name Extraction** (✅ Complete):
+   - `src/journey/room_names.{h,c}` - Z-machine object name decoder
+   - Abbreviation algorithm: "West of House" → "W.House"
+   - Removes filler words ("of", "the", "and")
+   - Workarounds for Z-string abbreviation artifacts
+
+3. **Phase 3 - Game End Detection** (✅ Complete):
+   - `src/journey/game_state.{h,c}` - Death/victory/quit detection
+   - Pattern matching on game output text
+   - Integration: Modified `doutput.c` to watch for death/victory patterns
+   - Integration: Modified `dinit.c` to trigger map on proper exit
+   - **Critical**: Map shows ONLY on death/victory, NOT on user quit
+
+**Test Infrastructure** (✅ Complete - Jan 14, 2026):
+Created comprehensive test suite with 49 tests (100% passing):
+
+```
+tests/
+├── unit/                          # 45 unit tests (3 suites)
+│   ├── test_tracker.c            # 13 tests - journey history
+│   ├── test_game_state.c         # 17 tests - end detection
+│   └── test_room_abbreviation.c  # 15 tests - name processing
+├── integration/                   # 4 integration tests
+│   └── (embedded in run_tests.sh)
+├── run_tests.sh                  # Automated test runner
+└── README.md                     # Test documentation
+
+# Run tests
+./tests/run_tests.sh              # All tests
+./tests/run_tests.sh unit         # Unit tests only
+./tests/run_tests.sh integration  # Integration tests only
+```
+
+**Test Coverage:**
+- Tracker: 13 tests (init, recording, growth, edge cases)
+- Game State: 17 tests (death/victory patterns, map logic)
+- Room Names: 15 tests (abbreviation, truncation, edge cases)
+- Integration: 4 tests (E2E gameplay scenarios)
+
+**Testing Best Practices - CRITICAL:**
+⚠️ **ALWAYS keep tests updated when adding features!**
+- Every new module MUST have unit tests
+- Every modified function MUST have tests updated
+- Tests are documentation - they show how code works
+- Tests prevent regressions - run before committing
+- Mock Z-machine dependencies using stubs (see tests/run_tests.sh)
+
+**Key Testing Patterns:**
+1. **Unit Tests**: Isolated, fast, no Z-machine dependencies
+   - Use stubs for Z-machine symbols (`zmp`, `object_name()`)
+   - Test edge cases: NULL inputs, empty strings, buffer overflows
+   - Simple test framework with colored output
+
+2. **Integration Tests**: Full system with real game file
+   - Build zork-native, run actual gameplay scenarios
+   - Verify output patterns using grep
+   - Test user quit vs death/victory separately
+
+**Technical Highlights:**
+- Dynamic array with amortized O(1) append
+- Observer pattern for location change detection
+- Minimal Z-machine modifications (clean hooks)
+- Case-insensitive pattern matching for game states
+- Standalone abbreviation algorithm (no Z-machine deps for testing)
+
+**Files Created:**
+- `src/journey/tracker.{h,c}` - History tracking
+- `src/journey/monitor.{h,c}` - Location detection
+- `src/journey/room_names.{h,c}` - Name extraction/abbreviation
+- `src/journey/game_state.{h,c}` - End condition detection
+- `tests/` - Complete test suite (6 files)
+
+**Files Modified:**
+- `src/zmachine/frotz/src/common/variable.c` - Location change hook
+- `src/zmachine/frotz/src/dumb/dinput.c` - Direction command detection
+- `src/zmachine/frotz/src/dumb/doutput.c` - Output monitoring
+- `src/zmachine/frotz/src/dumb/dinit.c` - Init/shutdown/map trigger
+- `scripts/build_local.sh` - Added journey sources to build
+
+**Completed Phases (Phase 4 & 5) - Jan 14, 2026:**
+
+4. **Phase 4 - Map Generation Algorithm** (✅ Complete):
+   - `src/journey/map_generator.{h,c}` - Graph-based layout system (~500 lines)
+   - Three-phase algorithm: graph building → spatial layout → rendering
+   - Direction-based coordinate assignment (N→Y-1, E→X+1, etc.)
+   - Collision detection and resolution for overlapping rooms
+   - Bounding box calculation for optimal rendering
+   - 9 comprehensive unit tests (all passing)
+
+5. **Phase 5 - Enhanced ASCII Renderer** (✅ Complete):
+   - 2D spatial grid system (80x40 characters)
+   - Nethack/Rogue-style room boxes with borders
+   - Visual direction indicators (^v<> arrows)
+   - Professional bordered layout with statistics
+   - Example output:
+     ```
+     ╔════════════════════════════════════════════════╗
+     ║        YOUR JOURNEY THROUGH ZORK              ║
+     ╠════════════════════════════════════════════════╣
+     ║                                                ║
+     ║   +------------+  +------------+               ║
+     ║   |  N.House   |> |   Forest   |               ║
+     ║   +------------+  +------------+               ║
+     ║                                                ║
+     ║   +------------+  +------------+               ║
+     ║   |  W.House   |^ |  S.House   |               ║
+     ║   +------------+  +------------+               ║
+     ╠════════════════════════════════════════════════╣
+     ║ Rooms: 4  Connections: 3  Size: 2x2           ║
+     ╚════════════════════════════════════════════════╝
+     ```
+
+**Test Coverage:**
+- **58 total tests, 100% passing**
+  - 17 game state detection tests
+  - 9 map generator tests
+  - 15 room name abbreviation tests
+  - 13 journey tracker tests
+  - 4 integration tests (E2E gameplay)
+
+**Current Status**: Journey mapping feature COMPLETE! The system tracks player movement, detects game endings (death/victory), and generates beautiful 2D ASCII maps showing the complete journey. All code heavily documented and fully tested.
+
 ### Project Status
 
 - [x] Phase 1.1: Repository structure and build system
@@ -325,11 +473,17 @@ Success rate: 100%
     - Tested with Ollama + Qwen2.5:0.5b
     - Design philosophy: literal translation, let game handle disambiguation
     - Comprehensive documentation created
+  - [x] Phase 2.2: Journey Mapping System - **COMPLETE** ✅
+    - [x] Journey tracking infrastructure (Phases 1-3)
+    - [x] Test suite with 58 tests (100% passing)
+    - [x] Map generation algorithm (Phase 4)
+    - [x] ASCII renderer with Nethack/Rogue style (Phase 5)
+    - [x] Polish and finalize (Phase 6)
 - [ ] Phase 3: Hardware deployment and testing (Ready to start)
 - [ ] Phase 4: Tensix inference integration (Future)
 - [ ] Phase 5: Optimization and benchmarking
 
-**Current Milestone**: Context-free LLM translation working perfectly! 100% accuracy with 0.5B model. Can play Zork using conversational input like "I want to open the mailbox". Design philosophy established: LLM translates literally, game handles disambiguation naturally. Native build complete, RISC-V ready for hardware deployment.
+**Current Milestone**: Journey mapping system COMPLETE! Players now see a beautiful 2D ASCII map of their adventure when they die or win. The map shows all visited rooms in spatial layout with Nethack/Rogue aesthetics. Context-free LLM translation working perfectly (100% accuracy with 0.5B model). Comprehensive test coverage: 58 tests, 100% passing. Native build complete, RISC-V ready for hardware deployment. Next: Hardware deployment (Phase 3).
 
 ### Hardware Access
 

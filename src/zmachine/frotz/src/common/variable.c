@@ -20,6 +20,42 @@
 
 #include "frotz.h"
 
+/* Journey tracking integration */
+#ifdef BUILD_NATIVE
+#include "../../../../journey/monitor.h"
+
+/**
+ * Helper: Check if variable write is a location change
+ *
+ * In the Z-machine, the player's current location is stored in global
+ * variable 0 (which is variable #16 in the numbering scheme):
+ * - Variables 0-15: stack/local variables
+ * - Variables 16+: global variables (16 = global 0, 17 = global 1, etc.)
+ *
+ * When the game moves the player to a new room, it writes the new room
+ * object number to variable 16. We detect this and notify the journey monitor.
+ *
+ * @param var_num - Variable number being written (Z-machine numbering)
+ * @param new_value - New value being written to the variable
+ */
+static void check_location_change(zword var_num, zword new_value) {
+	/* Global variable 0 is variable #16 */
+	if (var_num != 16) {
+		return;  /* Not the location variable */
+	}
+
+	/* Read the old location value before the write */
+	zword addr = z_header.globals + 2 * (var_num - 16);
+	zword old_value;
+	LOW_WORD(addr, old_value)
+
+	/* Notify monitor if location actually changed */
+	if (old_value != new_value) {
+		monitor_location_changed(old_value, new_value);
+	}
+}
+#endif
+
 
 /*
  * z_dec, decrement a variable.
@@ -322,6 +358,10 @@ void z_pull(void)
 
 	if (z_header.version != V6) {	/* not a V6 game, pop stack and write */
 		value = *sp++;
+#ifdef BUILD_NATIVE
+		/* Check if this write is a location change (before the write) */
+		check_location_change(zargs[0], value);
+#endif
 		if (zargs[0] == 0)
 			*sp = value;
 		else if (zargs[0] < 16)
@@ -392,6 +432,11 @@ void z_push_stack(void)
 void z_store(void)
 {
 	zword value = zargs[1];
+
+#ifdef BUILD_NATIVE
+	/* Check if this write is a location change (before the write) */
+	check_location_change(zargs[0], value);
+#endif
 
 	if (zargs[0] == 0)
 		*sp = value;

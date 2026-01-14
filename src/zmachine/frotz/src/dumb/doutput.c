@@ -21,9 +21,10 @@
 
 #include "dfrotz.h"
 
-/* LLM Output Capture */
+/* LLM Output Capture & Journey Tracking */
 #ifdef BUILD_NATIVE
 #include "../../../../llm/output_capture.h"
+#include "../../../../journey/game_state.h"
 #endif
 
 #define DEFAULT_DUMB_COLOUR 31
@@ -616,6 +617,9 @@ void os_display_string (const zchar *s)
 
 	if (buf_pos > 0) {
 		output_capture_add(capture_buf);
+
+		/* Watch for death/victory patterns in output */
+		game_state_watch_output(capture_buf);
 	}
 #endif
 
