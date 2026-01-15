@@ -556,29 +556,131 @@ zchar os_read_line (int UNUSED (max), zchar *buf, int timeout, int UNUSED(width)
 	dumb_display_user_input(read_line_buffer);
 
 	/*
-	 * LLM Translation Integration
+	 * LLM Translation Integration with Fast-Path Optimization
 	 *
-	 * If LLM is enabled, translate natural language to Zork commands.
-	 * Example: "open the mailbox" → "open mailbox"
+	 * Strategy:
+	 * 1. If input is an exact match to a valid Zork command, skip LLM translation (instant)
+	 * 2. Otherwise, use LLM to translate natural language to Zork commands
 	 *
-	 * If translation fails or LLM is disabled, read_line_buffer stays unchanged
-	 * (original user input passes through).
+	 * This optimization:
+	 * - Makes simple commands like "north", "take lamp", "open mailbox" instant (no LLM latency)
+	 * - Reduces LLM API calls for experienced players who know Zork syntax
+	 * - Still provides natural language support for casual players
+	 * - Journey tracking works regardless of path taken
 	 */
 #ifdef BUILD_NATIVE
-	if (translator_is_enabled()) {
-		char translated[512];
-		if (translator_process(read_line_buffer, translated, sizeof(translated)) == 0) {
-			/* Translation successful - replace input with translated commands */
-			strncpy(read_line_buffer, translated, sizeof(read_line_buffer) - 1);
-			read_line_buffer[sizeof(read_line_buffer) - 1] = '\0';
+	int needs_translation = 1;  /* Assume we need LLM translation */
 
-			/*
-			 * Note: We do NOT add the terminator character to read_line_buffer.
-			 * The terminator is returned as the function result, not part of the command string.
-			 * The Z-machine parser expects clean commands without terminators.
-			 */
+	if (translator_is_enabled()) {
+		/* Fast-path check: Is this already a valid Zork command?
+		 * Check for common patterns that the Z-machine parser will understand:
+		 * - Single-word directions: north, south, n, s, etc.
+		 * - Single-word verbs: look, inventory, wait, etc.
+		 * - Two-word commands: take lamp, open mailbox, etc.
+		 * - Three-word commands: put lamp in mailbox, etc.
+		 *
+		 * We do a simple syntactic check, not a semantic one.
+		 * The Z-machine parser will handle whether it's valid in the current context.
+		 */
+		char lower_input[256];
+		strncpy(lower_input, read_line_buffer, sizeof(lower_input) - 1);
+		lower_input[sizeof(lower_input) - 1] = '\0';
+		for (char *p = lower_input; *p; p++) {
+			*p = tolower(*p);
 		}
-		/* If translation failed, read_line_buffer unchanged (fallback) */
+
+		/* Remove trailing whitespace for comparison */
+		size_t len = strlen(lower_input);
+		while (len > 0 && (lower_input[len-1] == ' ' || lower_input[len-1] == '\t' || lower_input[len-1] == '\n' || lower_input[len-1] == '\r')) {
+			lower_input[--len] = '\0';
+		}
+
+		/* Check if it matches known Zork command patterns */
+		if (strlen(lower_input) > 0) {
+			/* Single-word commands (directions, common verbs) */
+			const char *single_word_commands[] = {
+				/* Directions */
+				"north", "south", "east", "west", "up", "down", "in", "out",
+				"n", "s", "e", "w", "u", "d",
+				"northeast", "northwest", "southeast", "southwest",
+				"ne", "nw", "se", "sw",
+				/* Common verbs */
+				"look", "l", "inventory", "i", "wait", "z",
+				"save", "restore", "restart", "quit", "q",
+				"score", "help", "version", "verbose", "brief",
+				"diagnose", "again", "g",
+				/* Yes/No responses */
+				"yes", "y", "no",
+				NULL
+			};
+
+			/* Check single-word commands */
+			for (int i = 0; single_word_commands[i] != NULL; i++) {
+				if (strcmp(lower_input, single_word_commands[i]) == 0) {
+					needs_translation = 0;
+					break;
+				}
+			}
+
+			/* Check for two-word command patterns: VERB OBJECT
+			 * Examples: "take lamp", "open mailbox", "read book"
+			 */
+			if (needs_translation) {
+				const char *verbs[] = {
+					"take", "get", "drop", "put",
+					"open", "close", "lock", "unlock",
+					"read", "examine", "x", "look",
+					"push", "pull", "turn", "move",
+					"attack", "kill", "eat", "drink",
+					"wear", "remove", "climb", "enter",
+					"exit", "light", "extinguish",
+					NULL
+				};
+
+				/* Count words (simple space-based split) */
+				int word_count = 0;
+				int in_word = 0;
+				for (const char *p = lower_input; *p; p++) {
+					if (*p == ' ' || *p == '\t') {
+						in_word = 0;
+					} else if (!in_word) {
+						word_count++;
+						in_word = 1;
+					}
+				}
+
+				/* If 2-4 words, check if first word is a known verb */
+				if (word_count >= 2 && word_count <= 4) {
+					for (int i = 0; verbs[i] != NULL; i++) {
+						size_t verb_len = strlen(verbs[i]);
+						if (strncmp(lower_input, verbs[i], verb_len) == 0 &&
+						    (lower_input[verb_len] == ' ' || lower_input[verb_len] == '\t')) {
+							/* Valid verb + object pattern - skip LLM translation */
+							needs_translation = 0;
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		/* If not an exact command match, use LLM translation */
+		if (needs_translation) {
+			char translated[512];
+			if (translator_process(read_line_buffer, translated, sizeof(translated)) == 0) {
+				/* Translation successful - replace input with translated commands */
+				strncpy(read_line_buffer, translated, sizeof(read_line_buffer) - 1);
+				read_line_buffer[sizeof(read_line_buffer) - 1] = '\0';
+
+				/*
+				 * Note: We do NOT add the terminator character to read_line_buffer.
+				 * The terminator is returned as the function result, not part of the command string.
+				 * The Z-machine parser expects clean commands without terminators.
+				 */
+			}
+			/* If translation failed, read_line_buffer unchanged (fallback) */
+		}
+		/* If exact match found, read_line_buffer passes through unchanged (fast path) */
 	}
 
 	/*

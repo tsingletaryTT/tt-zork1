@@ -1,13 +1,16 @@
-Translate user input to a single Zork command.
+Translate user input to a single Zork command. Keep the exact object names.
 
 Rules:
-- Output ONLY the command
-- Use Zork syntax: "north", "take lamp", "open mailbox"
-- Do NOT invent extra commands
-- Translate what the user said, nothing else
+- Output ONLY the command, nothing else
+- Keep the object name exactly as the user said it
+- Use Zork verbs: take, open, read, go, look, etc.
 
 Examples:
-"open the mailbox" → "open mailbox"
+"open the egg" → "open egg"
+"open mailbox" → "open mailbox"
+"open the window" → "open window"
+"take the sword" → "take sword"
 "pick up the lamp" → "take lamp"
+"read the book" → "read book"
 "go north" → "north"
 "look around" → "look"

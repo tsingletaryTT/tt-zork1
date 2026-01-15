@@ -469,21 +469,60 @@ tests/
   - Mock mode for testing without LLM server
   - Context-free translation for small models (0.5B parameters)
   - Graceful fallback on errors
-  - [x] Phase 2.1: Context-Free Translation Mode - **100% ACCURACY** ✅
-    - Tested with Ollama + Qwen2.5:0.5b
+  - [x] Phase 2.1: Context-Free Translation Mode - **COMPLETE** ✅
+    - Tested with Ollama + Qwen2.5:0.5b (75% accuracy) and 1.5b (100% accuracy)
     - Design philosophy: literal translation, let game handle disambiguation
     - Comprehensive documentation created
+    - Recommendation: Use 1.5B model for production
   - [x] Phase 2.2: Journey Mapping System - **COMPLETE** ✅
     - [x] Journey tracking infrastructure (Phases 1-3)
     - [x] Test suite with 58 tests (100% passing)
     - [x] Map generation algorithm (Phase 4)
     - [x] ASCII renderer with Nethack/Rogue style (Phase 5)
     - [x] Polish and finalize (Phase 6)
+  - [x] Phase 2.3: LLM Translation Accuracy Fix - **COMPLETE** ✅ (Jan 14, 2026)
+    - **Issue**: "open egg" was incorrectly translated to "open mailbox"
+    - **Root Cause**: System prompt had only one "open" example, causing 0.5B model to memorize "mailbox"
+    - **Fix**: Updated `prompts/system.txt` with multiple "open" examples
+      - "open egg" now FIRST example (early learning)
+      - Added "open window" and "open mailbox" variations
+      - Explicit instruction: "Keep the exact object names"
+    - **Verification**: Created comprehensive test suite (test-llm-comparison.sh)
+    - **Results**:
+      - ✅ 0.5B model: 75% accuracy (3/4 tests pass, "open window" fails)
+      - ✅ 1.5B model: 100% accuracy (all tests pass)
+    - **Recommendation**: Use qwen2.5:1.5b for production (2.5x larger, much better results)
+    - **Files Created**:
+      - `test-llm-translation.sh` - Basic translation test
+      - `test-llm-comparison.sh` - Model comparison test
+    - **Files Modified**:
+      - `prompts/system.txt` - Enhanced with diverse examples
+  - [x] Phase 2.4: Fast-Path Command Optimization - **COMPLETE** ✅ (Jan 14, 2026)
+    - **Goal**: Make exact Zork commands instant by bypassing LLM translation
+    - **Problem**: Every command went through LLM, adding latency even for simple inputs
+    - **Solution**: Pre-check if input matches known Zork command syntax
+      - Single-word commands: north, south, look, inventory, etc.
+      - Two-word commands: "take lamp", "open mailbox", "read book", etc.
+      - Multi-word commands with known verbs: "put lamp in mailbox", etc.
+    - **Benefits**:
+      - ✅ Instant response for exact commands (0.001s vs ~1s with LLM)
+      - ✅ Reduced LLM API calls for experienced players
+      - ✅ Natural language still works for casual players
+      - ✅ Journey tracking works regardless of path taken
+    - **Implementation**: Pattern matching in `dinput.c` before LLM translation
+      - 30+ single-word commands recognized
+      - 20+ verb patterns for multi-word commands
+      - Syntactic check only (Z-machine handles semantic validation)
+    - **Testing**: Created `test-fastpath.sh` to verify optimization
+    - **Files Modified**:
+      - `src/zmachine/frotz/src/dumb/dinput.c` - Fast-path logic (~100 lines)
+    - **Files Created**:
+      - `test-fastpath.sh` - Fast-path verification test
 - [ ] Phase 3: Hardware deployment and testing (Ready to start)
 - [ ] Phase 4: Tensix inference integration (Future)
 - [ ] Phase 5: Optimization and benchmarking
 
-**Current Milestone**: Journey mapping system COMPLETE! Players now see a beautiful 2D ASCII map of their adventure when they die or win. The map shows all visited rooms in spatial layout with Nethack/Rogue aesthetics. Context-free LLM translation working perfectly (100% accuracy with 0.5B model). Comprehensive test coverage: 58 tests, 100% passing. Native build complete, RISC-V ready for hardware deployment. Next: Hardware deployment (Phase 3).
+**Current Milestone**: Journey mapping system COMPLETE! Players now see a beautiful 2D ASCII map of their adventure when they die or win. The map shows all visited rooms in spatial layout with Nethack/Rogue aesthetics. Context-free LLM translation fixed and tested (100% accuracy with 1.5B model recommended). Comprehensive test coverage: 58 tests, 100% passing. Native build complete, RISC-V ready for hardware deployment. Next: Hardware deployment (Phase 3).
 
 ### Hardware Access
 
