@@ -36,8 +36,9 @@ BUILD_DIR="build-riscv"
 BINARY_NAME="zork-riscv"
 
 # RISC-V toolchain configuration
-# Try multiple common toolchain prefixes
+# Prioritize Tenstorrent-specific toolchain, then fall back to generic
 RISCV_PREFIXES=(
+    "riscv-tt-elf"                # Tenstorrent-specific (in /opt/tenstorrent/sfpi/compiler/bin)
     "riscv64-unknown-elf"
     "riscv64-linux-gnu"
     "riscv64-unknown-linux-gnu"

@@ -142,3 +142,10 @@ __What is the Purpose of this Repository__
 This collection is meant for education, discussion, and historical work, allowing researchers and students to study how code was made for these interactive fiction games and how the system dealt with input and processing.
 
 Researchers are encouraged to share their discoveries about the information in this source code and the history of Infocom and its many innovative employees.
+
+
+### So it begins...
+
+```bash
+export TT_METAL_HOME=/home/ttuser/tt-metal && g++ -std=c++17 -O3 -I$TT_METAL_HOME/tt_metal/include -L$TT_METAL_HOME/build/lib -ltt_metal zork_on_blackhole.cpp -o zork_on_blackhole
+```
