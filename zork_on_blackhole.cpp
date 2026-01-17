@@ -133,9 +133,67 @@ int main(int argc, char* argv[]) {
         std::cout << "       - Output buffer: " << MAX_OUTPUT_SIZE << " bytes" << std::endl;
         std::cout << std::endl;
 
-        // TODO: Create and load kernel
-        std::cout << "[TODO] Next: Create Zork kernel and load onto RISC-V core {0,0}" << std::endl;
-        std::cout << "[TODO] Next: Implement game loop with DRAM buffer I/O" << std::endl;
+        // Create program and kernel
+        std::cout << "[Host] Creating Zork kernel..." << std::endl;
+        Program program = CreateProgram();
+
+        // Create kernel on RISC-V core
+        // Note: Using absolute path to ensure TT-Metal finds the kernel
+        // DEBUG object table structure!
+        KernelHandle kernel_id = CreateKernel(
+            program,
+            "/home/ttuser/tt-zork1/kernels/zork_object_debug.cpp",  // Debug!
+            ZORK_CORE,
+            DataMovementConfig{
+                .processor = DataMovementProcessor::RISCV_0,
+                .noc = NOC::RISCV_0_default
+            }
+        );
+
+        std::cout << "[Host] Setting runtime arguments (buffer addresses)..." << std::endl;
+        SetRuntimeArgs(
+            program,
+            kernel_id,
+            ZORK_CORE,
+            {
+                game_buffer->address(),      // arg[0]: game data address
+                (uint32_t)game_data.size(),  // arg[1]: game data size
+                input_buffer->address(),     // arg[2]: input buffer address
+                MAX_INPUT_SIZE,              // arg[3]: input buffer size
+                output_buffer->address(),    // arg[4]: output buffer address
+                MAX_OUTPUT_SIZE              // arg[5]: output buffer size
+            }
+        );
+
+        // Prepare test input
+        std::cout << "[Host] Writing test input: 'look'..." << std::endl;
+        std::vector<char> test_input(MAX_INPUT_SIZE, 0);
+        std::string command = "look\n";
+        std::copy(command.begin(), command.end(), test_input.begin());
+        EnqueueWriteMeshBuffer(cq, input_buffer, test_input, /*blocking=*/true);
+
+        // Execute kernel!
+        std::cout << std::endl;
+        std::cout << "🚀 LAUNCHING ZORK ON BLACKHOLE RISC-V! 🚀" << std::endl;
+        std::cout << std::endl;
+
+        workload.add_program(device_range, std::move(program));
+        distributed::EnqueueMeshWorkload(cq, workload, /*blocking=*/true);  // BLOCK until done
+
+        std::cout << "[Host] Kernel execution complete!" << std::endl;
+        std::cout << "[Host] Reading output buffer..." << std::endl;
+
+        // Read output from kernel
+        std::vector<char> output_data(MAX_OUTPUT_SIZE);
+        distributed::EnqueueReadMeshBuffer(cq, output_data, output_buffer, /*blocking=*/true);
+
+        // Display output!
+        std::cout << std::endl;
+        std::cout << "╔════════════════════════════════════════════════════╗" << std::endl;
+        std::cout << "║  ZORK OUTPUT FROM BLACKHOLE RISC-V CORE           ║" << std::endl;
+        std::cout << "╠════════════════════════════════════════════════════╣" << std::endl;
+        std::cout << output_data.data() << std::endl;
+        std::cout << "╚════════════════════════════════════════════════════╝" << std::endl;
 
         // Cleanup
         mesh_device->close();
