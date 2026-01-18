@@ -139,10 +139,10 @@ int main(int argc, char* argv[]) {
 
         // Create kernel on RISC-V core
         // Note: Using absolute path to ensure TT-Metal finds the kernel
-        // DEBUG object table structure!
+        // SIMPLE OBJECT DECODER - Port of working Python!
         KernelHandle kernel_id = CreateKernel(
             program,
-            "/home/ttuser/tt-zork1/kernels/zork_object_debug.cpp",  // Debug!
+            "/home/ttuser/tt-zork1/kernels/zork_objects_minimal.cpp",  // Simple!
             ZORK_CORE,
             DataMovementConfig{
                 .processor = DataMovementProcessor::RISCV_0,
