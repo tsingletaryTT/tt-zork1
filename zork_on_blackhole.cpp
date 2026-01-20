@@ -139,10 +139,10 @@ int main(int argc, char* argv[]) {
 
         // Create kernel on RISC-V core
         // Note: Using absolute path to ensure TT-Metal finds the kernel
-        // OBJECT DECODER WITH ABBREVIATIONS - Test perfect "West of House"!
+        // FULL Z-MACHINE INTERPRETER - Let's run Zork for real!
         KernelHandle kernel_id = CreateKernel(
             program,
-            "/home/ttuser/tt-zork1/kernels/zork_objects_with_abbrev.cpp",
+            "/home/ttuser/tt-zork1/kernels/zork_interpreter.cpp",
             ZORK_CORE,
             DataMovementConfig{
                 .processor = DataMovementProcessor::RISCV_0,
