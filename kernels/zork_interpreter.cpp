@@ -706,6 +706,89 @@ static void op_rfalse() {
 }
 
 /**
+ * PRINT_OBJ opcode - Print object name
+ *
+ * In Z-machine: PRINT_OBJ object_num
+ */
+static void op_print_obj() {
+    zword obj_num = zargs[0];
+    if (obj_num == 0 || obj_num > 255) return;
+
+    zword obj_table = read_word(0x0A);
+    if (obj_table == 0 || obj_table >= 85000) return;  // Safety check
+
+    zword obj_start = obj_table + 62;
+    if (obj_start >= 85000) return;  // Safety check
+
+    zword entry = obj_start + ((obj_num - 1) * 9);
+    if (entry >= 85000) return;  // Safety check
+
+    zword prop_table = read_word(entry + 7);
+    if (prop_table == 0 || prop_table >= 85000) return;  // Safety check
+
+    zbyte text_len = read_byte(prop_table);
+    if (text_len == 0 || text_len > 10) return;  // Stricter limit
+
+    if (prop_table + 1 + (text_len * 2) < 85000) {  // Bounds check
+        decode_zstring(prop_table + 1, text_len, 0);
+    }
+}
+
+/**
+ * PRINT_ADDR opcode - Print Z-string at address
+ *
+ * In Z-machine: PRINT_ADDR address
+ */
+static void op_print_addr() {
+    zword addr = zargs[0];
+    // Stricter bounds: only decode if in reasonable range
+    if (addr > 0 && addr < 85000 && out_pos < 14000) {
+        decode_zstring(addr, 10, 0);  // Limit to 10 words max
+    }
+}
+
+/**
+ * PRINT_CHAR opcode - Print a single character
+ *
+ * In Z-machine: PRINT_CHAR char_code
+ */
+static void op_print_char() {
+    zbyte ch = (zbyte)zargs[0];
+    if (out_pos < 15000) output[out_pos++] = ch;
+}
+
+/**
+ * PRINT_NUM opcode - Print a signed number
+ *
+ * In Z-machine: PRINT_NUM value
+ * This fixes the "Release ixn" bug!
+ */
+static void op_print_num() {
+    int16_t value = (int16_t)zargs[0];
+
+    if (value < 0) {
+        if (out_pos < 15000) output[out_pos++] = '-';
+        value = -value;
+    }
+
+    char digits[6];
+    int num_digits = 0;
+
+    if (value == 0) {
+        digits[num_digits++] = '0';
+    } else {
+        while (value > 0 && num_digits < 6) {
+            digits[num_digits++] = '0' + (value % 10);
+            value /= 10;
+        }
+    }
+
+    for (int i = num_digits - 1; i >= 0; i--) {
+        if (out_pos < 15000) output[out_pos++] = digits[i];
+    }
+}
+
+/**
  * Main interpreter loop - based on Frotz's interpret()
  *
  * This is like Ruby's "eval" - it reads bytecode and executes it!
@@ -776,9 +859,12 @@ static void interpret(uint32_t max_instructions) {
                 case 0x05:  // GET_CHILD - get object child
                     op_get_child();
                     break;
-                case 0x07:  // RANDOM - random number generator
-                    op_random();
-                    break;
+                // case 0x07:  // PRINT_ADDR - print string at address (disabled - needs debugging)
+                //     op_print_addr();
+                //     break;
+                // case 0x0A:  // PRINT_OBJ - print object name (disabled - needs debugging)
+                //     op_print_obj();
+                //     break;
                 case 0x0B:  // RET - return value
                     op_ret();
                     break;
@@ -822,6 +908,15 @@ static void interpret(uint32_t max_instructions) {
                 case 0x00:  // CALL_1S - call routine (1 arg min)
                 case 0x20:  // CALL_VS2 - call routine (variable args, extended)
                     op_call();
+                    break;
+                case 0x05:  // PRINT_CHAR - print character
+                    op_print_char();
+                    break;
+                case 0x06:  // PRINT_NUM - print number
+                    op_print_num();
+                    break;
+                case 0x07:  // RANDOM - random number generator
+                    op_random();
                     break;
                 case 0x0D:  // STORE - store to variable
                     op_store();

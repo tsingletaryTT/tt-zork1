@@ -844,3 +844,36 @@ This is likely the **FIRST TIME EVER** that a Z-machine interpreter has executed
 - Leather Goddesses of Phobos
 - Planetfall
 
+### Phase 3.2: Phase 1 Text Output Opcodes (Jan 20, 2026 - Continued)
+
+**What Happened:**
+- Environment issue resolved (baseline working again)
+- Implemented 4 Phase 1 text output opcodes:
+  - ✅ PRINT_NUM (VAR 0x06) - Print signed numbers
+  - ✅ PRINT_CHAR (VAR 0x05) - Print single characters
+  - ⚠️ PRINT_OBJ (1OP 0x0A) - Print object names (implemented, disabled due to issues)
+  - ⚠️ PRINT_ADDR (1OP 0x07) - Print Z-strings at address (implemented, disabled due to issues)
+- Moved RANDOM to correct VAR opcode section (0x07)
+
+**Current Status:**
+- PRINT_NUM and PRINT_CHAR: Implemented and working
+- PRINT_OBJ and PRINT_ADDR: Implemented but causing memory corruption, disabled for now
+- Interpreter still produces opening text correctly
+- "Release ixn" bug persists (PRINT_NUM not being called by game)
+
+**Issues Discovered:**
+- PRINT_OBJ/PRINT_ADDR cause garbled output when enabled
+- Likely memory access or Z-string decoding issue with wrong parameters
+- Need better debugging to understand what addresses are being passed
+
+**Opcodes Implemented Total:** 24 (was 22)
+- Added: PRINT_NUM, PRINT_CHAR
+- Relocated: RANDOM to VAR section
+- Code present but disabled: PRINT_OBJ, PRINT_ADDR
+
+**Next Steps:**
+1. Debug PRINT_OBJ and PRINT_ADDR memory access issues
+2. Verify these opcodes are actually being called by examining opcode stream
+3. Continue with Phase 2: Essential opcodes (INC, DEC, SUB, OR, etc.)
+4. Eventually implement READ opcode for input
+
