@@ -14,4 +14,14 @@ add_executable(test_device_init)
 target_sources(test_device_init PRIVATE test_device_init.cpp)
 target_link_libraries(test_device_init PUBLIC TT::Metalium)
 
+# Simple kernel test (device init + kernel creation)
+add_executable(test_simple_kernel)
+target_sources(test_simple_kernel PRIVATE test_simple_kernel.cpp)
+target_link_libraries(test_simple_kernel PUBLIC TT::Metalium)
+
+# Test with full program structure (device init only)
+add_executable(test_full_structure)
+target_sources(test_full_structure PRIVATE test_full_structure.cpp)
+target_link_libraries(test_full_structure PUBLIC TT::Metalium)
+
 # TODO: Add kernel compilation target later
