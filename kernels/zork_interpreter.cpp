@@ -44,6 +44,9 @@ static bool finished;
 static zbyte first_opcodes[50];  // Just the raw opcodes, not counts
 static uint32_t opcode_track_count;
 
+// Debug counters
+static uint32_t print_obj_calls = 0;
+
 // Read byte and advance PC
 #define CODE_BYTE(v) v = *pc++
 
@@ -225,27 +228,36 @@ static void write_variable(zbyte var, zword value) {
 }
 
 /**
- * Load operand based on type
- * Type 0 = large constant (word follows)
- * Type 1 = small constant (byte follows)
- * Type 2 = variable
+ * Convert nibble (0-15) to hex character
+ */
+static char tohex(uint8_t nibble) {
+    return (nibble < 10) ? ('0' + nibble) : ('A' + (nibble - 10));
+}
+
+/**
+ * Load operand based on type (matches Frotz's implementation)
+ * Uses bit tests for robustness (from Frotz process.c lines 197-216)
+ *
+ * Bit 1 set (type & 2): variable
+ * Bit 0 set (type & 1): small constant
+ * Neither bit set: large constant
  */
 static void load_operand(int type) {
     if (zargc >= 8) return;
 
-    if (type == 0) {
-        // Large constant - read word
-        CODE_WORD(zargs[zargc]);
-    } else if (type == 1) {
-        // Small constant - read byte
+    if (type & 2) {
+        // Variable - bit 1 set
+        zbyte var;
+        CODE_BYTE(var);
+        zargs[zargc] = read_variable(var);
+    } else if (type & 1) {
+        // Small constant - bit 0 set
         zbyte b;
         CODE_BYTE(b);
         zargs[zargc] = b;
     } else {
-        // Variable - read variable number then get value
-        zbyte var;
-        CODE_BYTE(var);
-        zargs[zargc] = read_variable(var);  // NOW IT WORKS!
+        // Large constant - both bits clear
+        CODE_WORD(zargs[zargc]);
     }
     zargc++;
 }
@@ -710,26 +722,54 @@ static void op_rfalse() {
  *
  * In Z-machine: PRINT_OBJ object_num
  */
+static uint8_t last_opcode_for_print_obj = 0;  // Debug: capture triggering opcode
+
 static void op_print_obj() {
+    print_obj_calls++;  // Debug counter
+
     zword obj_num = zargs[0];
+
+    // Only show first call with more detail
+    if (print_obj_calls == 1 && out_pos < 14500) {
+        output[out_pos++] = '[';
+        output[out_pos++] = 'P';
+        output[out_pos++] = 'O';
+        output[out_pos++] = 'B';
+        output[out_pos++] = 'J';
+        output[out_pos++] = ' ';
+        output[out_pos++] = 'o';
+        output[out_pos++] = 'p';
+        output[out_pos++] = '=';
+        output[out_pos++] = tohex(last_opcode_for_print_obj >> 4);
+        output[out_pos++] = tohex(last_opcode_for_print_obj & 0xF);
+        output[out_pos++] = ' ';
+        output[out_pos++] = 'n';
+        output[out_pos++] = '=';
+        // Print object number
+        if (obj_num >= 100) output[out_pos++] = '0' + (obj_num / 100);
+        if (obj_num >= 10) output[out_pos++] = '0' + ((obj_num / 10) % 10);
+        output[out_pos++] = '0' + (obj_num % 10);
+        output[out_pos++] = ']';
+    }
+
     if (obj_num == 0 || obj_num > 255) return;
 
     zword obj_table = read_word(0x0A);
-    if (obj_table == 0 || obj_table >= 85000) return;  // Safety check
+    if (obj_table == 0 || obj_table >= 85000) return;
 
     zword obj_start = obj_table + 62;
-    if (obj_start >= 85000) return;  // Safety check
+    if (obj_start >= 85000) return;
 
     zword entry = obj_start + ((obj_num - 1) * 9);
-    if (entry >= 85000) return;  // Safety check
+    if (entry >= 85000) return;
 
     zword prop_table = read_word(entry + 7);
-    if (prop_table == 0 || prop_table >= 85000) return;  // Safety check
+    if (prop_table == 0 || prop_table >= 85000) return;
 
     zbyte text_len = read_byte(prop_table);
-    if (text_len == 0 || text_len > 10) return;  // Stricter limit
+    if (text_len == 0 || text_len > 10) return;
 
-    if (prop_table + 1 + (text_len * 2) < 85000) {  // Bounds check
+    if (prop_table + 1 + (text_len * 2) < 85000) {
         decode_zstring(prop_table + 1, text_len, 0);
     }
 }
@@ -862,7 +902,8 @@ static void interpret(uint32_t max_instructions) {
                 // case 0x07:  // PRINT_ADDR - print string at address (disabled - needs debugging)
                 //     op_print_addr();
                 //     break;
-                // case 0x0A:  // PRINT_OBJ - print object name (disabled - needs debugging)
+                // case 0x0A:  // PRINT_OBJ - print object name (disabled - testing operand fix)
+                //     last_opcode_for_print_obj = opcode;  // Debug: capture opcode
                 //     op_print_obj();
                 //     break;
                 case 0x0B:  // RET - return value
