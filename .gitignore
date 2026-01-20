@@ -63,3 +63,4 @@ local.mk
 # Keep model directory structure but ignore large files
 !models/.gitkeep
 !models/README.md
+model_cache/

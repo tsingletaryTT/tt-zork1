@@ -976,3 +976,26 @@ This is beyond code-level fixes. Needs investigation by someone with:
 - Ability to run hardware diagnostics on specific cores
 - Knowledge of TT-Metal firmware initialization sequence
 - Potentially access to alternate Blackhole hardware for comparison
+
+**HARDWARE FAULT CONFIRMED (Jan 20, 2026 20:34 UTC):**
+
+After exhaustive debugging, confirmed this is a hardware fault at core (x=1,y=2):
+
+**Tests Performed:**
+1. ✅ Created minimal device init test (`test_device_init.cpp`) - even bare device creation fails
+2. ✅ Updated TT-Metal to latest main (1baf917637) - still fails
+3. ✅ Reverted TT-Metal to d4fd413eb1 (version from when it worked at 02:10) - still fails
+4. ✅ Complete TT-Metal rebuild at working version - still fails
+5. ✅ Multiple hardware resets, system reboot, firmware upgrade - still fails
+
+**Evidence:**
+- Worked at 02:10 (commit 523dd47 with TT-Metal d4fd413eb1)
+- Broken by 03:06 (no code changes, no TT-Metal changes)
+- Persists across all software versions, rebuilds, and reboots
+- Affects ALL TT-Metal programs, not just our code
+- Minimal test (`MeshDevice::create_unit_mesh(0)`) fails identically
+
+**Conclusion:** Core (x=1,y=2) developed a physical hardware fault between 02:10 and 03:06 today. Requires hardware diagnostic testing or RMA/repair.
+
+**Application Status:**
+All Zork interpreter improvements are complete, committed, and ready for testing once hardware is repaired. See `HARDWARE_FAULT_REPORT.md` for detailed evidence and support documentation.

@@ -29,6 +29,7 @@
 #include <tt-metalium/device.hpp>
 #include "tt-metalium/buffer.hpp"
 #include <tt-metalium/distributed.hpp>
+#include <tt-metalium/system_mesh.hpp>
 
 using namespace tt;
 using namespace tt::tt_metal;
@@ -88,8 +89,24 @@ int main(int argc, char* argv[]) {
 
         // Initialize Tenstorrent device
         std::cout << "[Host] Initializing Blackhole device..." << std::endl;
+
+        // Get the full system mesh shape (e.g., 1x2 for 2 devices)
+        const auto system_mesh_shape = distributed::SystemMesh::instance().shape();
+        std::cout << "[Host] System mesh shape: " << system_mesh_shape << std::endl;
+
+        // Create mesh device for the full system (recent TT-Metal requires this)
+        std::cout << "[Host] Creating parent mesh..." << std::flush;
+        std::shared_ptr<distributed::MeshDevice> parent_mesh =
+            distributed::MeshDevice::create(distributed::MeshDeviceConfig(system_mesh_shape));
+        std::cout << " done" << std::endl;
+
+        // Create a 1x1 submesh to use just one device
+        std::cout << "[Host] Creating 1x1 submesh..." << std::flush;
         std::shared_ptr<distributed::MeshDevice> mesh_device =
-            distributed::MeshDevice::create_unit_mesh(0);
+            parent_mesh->create_submesh(distributed::MeshShape(1, 1));
+        std::cout << " done" << std::endl;
+
+        std::cout << "[Host] Using submesh device at coordinate (0,0)" << std::endl;
 
         distributed::MeshCommandQueue& cq = mesh_device->mesh_command_queue();
         distributed::MeshWorkload workload;
@@ -195,8 +212,10 @@ int main(int argc, char* argv[]) {
         std::cout << output_data.data() << std::endl;
         std::cout << "╚════════════════════════════════════════════════════╝" << std::endl;
 
-        // Cleanup
+        // Cleanup (close submesh first, then parent mesh)
+        std::cout << "[Host] Closing devices..." << std::endl;
         mesh_device->close();
+        parent_mesh->close();
 
         std::cout << std::endl;
         std::cout << "✓ Proof of concept: Successfully loaded game data onto Blackhole!" << std::endl;
