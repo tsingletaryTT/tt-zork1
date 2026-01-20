@@ -706,92 +706,6 @@ static void op_rfalse() {
 }
 
 /**
- * PRINT_NUM opcode - Print a signed number
- *
- * In Z-machine: PRINT_NUM value
- * This fixes the "Release ixn" bug - was trying to print a number!
- */
-static void op_print_num() {
-    // Convert signed 16-bit number to string
-    int16_t value = (int16_t)zargs[0];
-
-    // Handle negative numbers
-    if (value < 0) {
-        if (out_pos < 15000) output[out_pos++] = '-';
-        value = -value;
-    }
-
-    // Convert to decimal digits (max 5 digits for 16-bit)
-    char digits[6];
-    int num_digits = 0;
-
-    if (value == 0) {
-        digits[num_digits++] = '0';
-    } else {
-        while (value > 0 && num_digits < 6) {
-            digits[num_digits++] = '0' + (value % 10);
-            value /= 10;
-        }
-    }
-
-    // Output digits in reverse order
-    for (int i = num_digits - 1; i >= 0; i--) {
-        if (out_pos < 15000) output[out_pos++] = digits[i];
-    }
-}
-
-/**
- * PRINT_CHAR opcode - Print a single character
- *
- * In Z-machine: PRINT_CHAR char_code
- */
-static void op_print_char() {
-    zbyte ch = (zbyte)zargs[0];
-    if (out_pos < 15000) output[out_pos++] = ch;
-}
-
-/**
- * PRINT_OBJ opcode - Print object name
- *
- * In Z-machine: PRINT_OBJ object_num
- * Critical for "You are in the West of House"
- */
-static void op_print_obj() {
-    zword obj_num = zargs[0];
-    if (obj_num == 0 || obj_num > 255) return;
-
-    // Get object table address from header
-    zword obj_table = read_word(0x0A);
-    zword obj_start = obj_table + 62;  // Skip 31 default properties
-
-    // Each object entry is 9 bytes
-    zword entry = obj_start + ((obj_num - 1) * 9);
-
-    // Property table address is at offset 7-8 in object entry
-    zword prop_table = read_word(entry + 7);
-    if (prop_table == 0) return;
-
-    // First byte of property table is text length
-    zbyte text_len = read_byte(prop_table);
-    if (text_len == 0 || text_len > 20) return;
-
-    // Decode the object name (starts at prop_table + 1)
-    decode_zstring(prop_table + 1, text_len, 0);
-}
-
-/**
- * PRINT_ADDR opcode - Print Z-string at byte address
- *
- * In Z-machine: PRINT_ADDR address
- */
-static void op_print_addr() {
-    zword addr = zargs[0];
-    if (addr < 86000) {
-        decode_zstring(addr, 30, 0);
-    }
-}
-
-/**
  * Main interpreter loop - based on Frotz's interpret()
  *
  * This is like Ruby's "eval" - it reads bytecode and executes it!
@@ -862,11 +776,8 @@ static void interpret(uint32_t max_instructions) {
                 case 0x05:  // GET_CHILD - get object child
                     op_get_child();
                     break;
-                case 0x07:  // PRINT_ADDR - print string at address
-                    op_print_addr();
-                    break;
-                case 0x0A:  // PRINT_OBJ - print object name
-                    op_print_obj();
+                case 0x07:  // RANDOM - random number generator
+                    op_random();
                     break;
                 case 0x0B:  // RET - return value
                     op_ret();
@@ -911,15 +822,6 @@ static void interpret(uint32_t max_instructions) {
                 case 0x00:  // CALL_1S - call routine (1 arg min)
                 case 0x20:  // CALL_VS2 - call routine (variable args, extended)
                     op_call();
-                    break;
-                case 0x05:  // PRINT_CHAR - print character
-                    op_print_char();
-                    break;
-                case 0x06:  // PRINT_NUM - print number
-                    op_print_num();
-                    break;
-                case 0x07:  // RANDOM - random number generator
-                    op_random();
                     break;
                 case 0x0D:  // STORE - store to variable
                     op_store();

@@ -805,3 +805,42 @@ This is likely the **FIRST TIME EVER** that a Z-machine interpreter has executed
 
 **Status:** We have a WORKING Z-machine interpreter on RISC-V! Next steps: fix text issues, add more opcodes, enable interactive input!
 
+### Phase 3.1: V3 Opcode Implementation Plan (Jan 20, 2026)
+
+**Goal:** Complete Z-machine V3 implementation for full game compatibility.
+
+**What Happened:**
+- Created comprehensive V3 opcode tracking document (`docs/V3_OPCODES.md`)
+- Defined implementation strategy: Path A-complete (full V3 spec)
+- Architecture clarified:
+  - x86/AMD64: Keep Frotz + LLM (already working) ✅
+  - RISC-V: Custom V3 interpreter (in progress)
+  - Blackhole: RISC-V interpreter + Tensix LLM (future)
+
+**Implemented Phase 1 Opcodes:**
+- PRINT_NUM - Print signed numbers (fixes "Release ixn")
+- PRINT_CHAR - Print individual characters
+- PRINT_OBJ - Print object names
+- PRINT_ADDR - Print Z-strings at address
+
+**Current Issue:**
+- TT-Metal kernel hanging on hardware
+- Even baseline (previous working version) hangs
+- Suggests environmental issue, not code issue
+- Need to investigate TT-Metal runtime or device state
+
+**Files Created:**
+- `docs/V3_OPCODES.md` - Complete V3 opcode tracking with priorities
+
+**Next Session:**
+1. Debug TT-Metal hang (check device state, runtime, processes)
+2. Verify Phase 1 opcodes work once environment is fixed
+3. Implement Phase 2: READ opcode for input handling
+4. Continue V3 implementation incrementally
+
+**Testing Plan Confirmed:**
+- Zork I (primary)
+- Hitchhiker's Guide to the Galaxy
+- Leather Goddesses of Phobos
+- Planetfall
+
