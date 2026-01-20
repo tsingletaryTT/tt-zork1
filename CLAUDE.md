@@ -922,3 +922,33 @@ This is likely the **FIRST TIME EVER** that a Z-machine interpreter has executed
 - PRINT_OBJ debugging infrastructure in place
 - Blocked on hardware stability for testing
 
+**REBOOT CHECKPOINT - Jan 20, 2026 16:58 UTC**
+
+**System State Before Reboot:**
+- All code changes committed to git (commits: eb19904, 0af0c14)
+- Hardware: Blackhole chips having persistent firmware init failures at core (x=1,y=2)
+- Multiple soft resets attempted via tt-smi without success
+- Preparing for cold reboot to resolve firmware initialization issue
+
+**After Reboot - Testing Checklist:**
+1. Verify hardware comes up cleanly: `tt-smi -s`
+2. Test baseline interpreter: `TT_METAL_RUNTIME_ROOT=/home/ttuser/tt-metal ./build-host/zork_on_blackhole`
+3. If baseline works, re-enable PRINT_OBJ in kernels/zork_interpreter.cpp (line ~904)
+4. Rebuild: `cd build-host && cmake --build . --parallel`
+5. Test with PRINT_OBJ debug instrumentation to see `[POBJ op=XX n=YY]` output
+6. Analyze object numbers being printed and verify proper decoding
+7. If PRINT_OBJ works, test PRINT_ADDR similarly
+8. Once text opcodes stable, continue Phase 2 essential opcodes
+
+**Code Ready for Testing:**
+- Frotz-style operand loading (more robust bit tests)
+- PRINT_OBJ debug instrumentation (shows opcode and object number)
+- PRINT_ADDR implementation (currently disabled)
+- Both disabled at lines ~904-907 in zork_interpreter.cpp
+
+**Key Files:**
+- `kernels/zork_interpreter.cpp` - Main interpreter with Phase 1 opcodes
+- `zork_on_blackhole.cpp` - Host program
+- `build-host/zork_on_blackhole` - Compiled binary (ready to run)
+- `docs/V3_OPCODES.md` - Opcode implementation tracking
+
