@@ -952,3 +952,27 @@ This is likely the **FIRST TIME EVER** that a Z-machine interpreter has executed
 - `build-host/zork_on_blackhole` - Compiled binary (ready to run)
 - `docs/V3_OPCODES.md` - Opcode implementation tracking
 
+**POST-REBOOT STATUS (Jan 20, 2026 17:18 UTC):**
+
+Reboot DID NOT resolve the firmware initialization issue. Same error persists:
+```
+Device 0: Timeout (10000 ms) waiting for physical cores to finish: (x=1,y=2).
+Device 0 init: failed to initialize FW! Try resetting the board.
+```
+
+**Analysis:**
+- Error occurs during `MeshDevice::create_unit_mesh(0)` initialization
+- Core (x=1,y=2) is a TT-Metal system core (not our application core at 0,0)
+- Hardware telemetry shows no faults, normal temperatures
+- Harvesting mask for chip 0: tensix=0x101, dram=0x0, eth=0x120, pcie=0x2
+- This appears to be either:
+  1. A hardware fault at core (x=1,y=2) requiring RMA
+  2. A TT-Metal firmware/driver issue with v19.4.0
+  3. An environmental configuration problem
+
+**Recommendation:**
+This is beyond code-level fixes. Needs investigation by someone with:
+- Access to TT-Metal firmware logs
+- Ability to run hardware diagnostics on specific cores
+- Knowledge of TT-Metal firmware initialization sequence
+- Potentially access to alternate Blackhole hardware for comparison
