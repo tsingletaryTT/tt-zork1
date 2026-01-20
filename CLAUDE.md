@@ -877,3 +877,48 @@ This is likely the **FIRST TIME EVER** that a Z-machine interpreter has executed
 3. Continue with Phase 2: Essential opcodes (INC, DEC, SUB, OR, etc.)
 4. Eventually implement READ opcode for input
 
+### Phase 3.3: PRINT_OBJ Investigation & Frotz Refactor (Jan 20, 2026 - Continued)
+
+**What Happened:**
+- Added debug instrumentation to PRINT_OBJ to capture opcode and parameters
+- Successfully identified the issue: opcode 0xAA calling PRINT_OBJ with object 0
+- Discovered that object 0 is being legitimately requested by the game (null object)
+- Investigated operand loading by studying Frotz reference implementation
+
+**Key Discovery - Frotz-Style Operand Loading:**
+- Frotz uses bit tests instead of exact equality checks for operand types
+- Their approach: `if (type & 2)` for variable, `else if (type & 1)` for small constant
+- This is more robust than our `if (type == 0)` / `else if (type == 1)` approach
+- Handles extra bits in type parameter gracefully (from process.c lines 197-216)
+
+**Refactoring:**
+- Updated `load_operand()` to match Frotz's bit-test implementation
+- More robust handling of 1OP operand type extraction
+- Previous code worked by accident (falling through to else case)
+- New code explicitly follows Z-machine spec with bit tests
+
+**Hardware Issues Encountered:**
+- Persistent firmware initialization failures at core (x=1,y=2)
+- Multiple chip resets (tt-smi -r 0 1) did not resolve issue
+- Timeout during MetalContext::initialize_and_launch_firmware()
+- Hardware appears healthy (good temps, power) but firmware won't initialize
+- Issue is environmental, not code-related (even reverted baseline fails)
+
+**Files Modified:**
+- `kernels/zork_interpreter.cpp` - Frotz-style operand loading refactor
+- `.gitignore` - Added build-host/ and generated/ directories
+
+**Commit:**
+- eb19904: "refactor: Use Frotz-style bit-test operand loading"
+
+**Next Steps:**
+1. Resolve hardware firmware initialization issue (may need cold reboot or deeper investigation)
+2. Test PRINT_OBJ once hardware is stable
+3. Test PRINT_ADDR separately
+4. Continue Phase 2 essential opcodes once text output is working
+
+**Status:**
+- Code improvements committed (Frotz-style refactor)
+- PRINT_OBJ debugging infrastructure in place
+- Blocked on hardware stability for testing
+
