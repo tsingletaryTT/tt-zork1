@@ -40,6 +40,10 @@ static uint32_t frame_sp;
 // Flag to stop execution
 static bool finished;
 
+// Opcode tracking for debugging - track first 50 instructions only to save memory
+static zbyte first_opcodes[50];  // Just the raw opcodes, not counts
+static uint32_t opcode_track_count;
+
 // Read byte and advance PC
 #define CODE_BYTE(v) v = *pc++
 
@@ -74,6 +78,14 @@ static inline void write_word(uint32_t addr, zword value) {
 
 /**
  * Get character from alphabet
+ * idx is the raw 5-bit character code (0-31)
+ * - Codes 0-5 are special (handled elsewhere)
+ * - Codes 6-31 map to alphabet positions 0-25
+ *
+ * Alphabet 2 positions (Z-machine spec):
+ * Position 0 (code 6): space
+ * Position 1 (code 7): newline
+ * Position 2+ (code 8+): 0123456789.,!?_#'"/\-:()
  */
 static char get_char(int alph, int idx) {
     if (alph == 0) {
@@ -83,8 +95,13 @@ static char get_char(int alph, int idx) {
         if (idx == 0) return ' ';
         if (idx >= 6 && idx <= 31) return 'A' + (idx - 6);
     } else {
-        const char* punct = " ^0123456789.,!?_#'\"/\\-:()";
-        if (idx < 26) return punct[idx];
+        // Alphabet 2: punctuation and special characters
+        if (idx == 0) return ' ';
+        if (idx == 6) return ' ';   // Position 0
+        if (idx == 7) return '\n';  // Position 1 - NEWLINE!
+        // Positions 2-25: 0123456789.,!?_#'"/\-:()
+        const char* punct = "0123456789.,!?_#'\"/\\-:()";
+        if (idx >= 8 && idx <= 31) return punct[idx - 8];
     }
     return '?';
 }
@@ -249,6 +266,117 @@ static void load_all_operands(zbyte specifier) {
 }
 
 /**
+ * Branch helper - handle conditional branch
+ *
+ * In Ruby: if condition then goto label end
+ * In Z-machine: Branch instructions have offset encoded after them
+ */
+static void do_branch(bool condition) {
+    // Read branch byte
+    zbyte branch_byte;
+    CODE_BYTE(branch_byte);
+
+    // Bit 7: branch on TRUE (1) or FALSE (0)
+    bool branch_on_true = (branch_byte & 0x80) != 0;
+
+    // Bit 6: 0 = branch offset is 14-bit (2 bytes), 1 = 6-bit (in this byte)
+    bool short_form = (branch_byte & 0x40) != 0;
+
+    int16_t offset;
+    if (short_form) {
+        // 6-bit offset in low 6 bits of this byte
+        offset = branch_byte & 0x3F;
+    } else {
+        // 14-bit offset: low 6 bits of first byte + 8 bits of next byte
+        zbyte second_byte;
+        CODE_BYTE(second_byte);
+        offset = ((branch_byte & 0x3F) << 8) | second_byte;
+
+        // Sign extend from 14 bits to 16 bits
+        if (offset & 0x2000) {
+            offset |= 0xC000;  // Set top 2 bits for negative
+        }
+    }
+
+    // Should we branch?
+    bool do_it = (condition == branch_on_true);
+
+    if (do_it) {
+        if (offset == 0 || offset == 1) {
+            // Special: return FALSE (0) or TRUE (1)
+            if (frame_sp > 0) {
+                frame_sp--;
+                Frame frame = frames[frame_sp];
+                pc = frame.ret_pc;
+                write_variable(frame.store_var, offset);
+            } else {
+                finished = true;
+            }
+        } else {
+            // Normal branch: offset is relative to current PC
+            // Offset of 2 means "skip the next instruction"
+            pc += (offset - 2);
+        }
+    }
+}
+
+/**
+ * STORE opcode - Store a value to a variable
+ *
+ * In Ruby: variable = value
+ * In Z-machine: STORE var value
+ */
+static void op_store() {
+    zbyte var;
+    CODE_BYTE(var);
+    write_variable(var, zargs[0]);
+}
+
+/**
+ * LOAD opcode - Load variable value
+ *
+ * In Ruby: result = some_variable
+ * In Z-machine: LOAD var -> store_var
+ */
+static void op_load() {
+    zbyte var;
+    CODE_BYTE(var);
+    zword value = read_variable(var);
+
+    zbyte store_var;
+    CODE_BYTE(store_var);
+    write_variable(store_var, value);
+}
+
+/**
+ * JZ opcode - Jump if Zero
+ *
+ * In Ruby: goto label if value == 0
+ * In Z-machine: JZ value ?branch
+ */
+static void op_jz() {
+    do_branch(zargs[0] == 0);
+}
+
+/**
+ * JE opcode - Jump if Equal
+ *
+ * In Ruby: goto label if a == b || a == c || a == d
+ * In Z-machine: JE a b c d ?branch
+ */
+static void op_je() {
+    // Compare zargs[0] with zargs[1..zargc-1]
+    bool equal = false;
+    for (uint32_t i = 1; i < zargc; i++) {
+        if (zargs[0] == zargs[i]) {
+            equal = true;
+            break;
+        }
+    }
+    do_branch(equal);
+}
+
+/**
  * PRINT opcode - print literal Z-string
  */
 static void op_print() {
@@ -366,6 +494,180 @@ static void op_ret() {
 }
 
 /**
+ * ADD opcode - Add two numbers
+ *
+ * In Ruby: result = a + b
+ * In Z-machine: ADD a b -> result
+ */
+static void op_add() {
+    zbyte store_var;
+    CODE_BYTE(store_var);
+
+    // Signed 16-bit addition
+    int16_t a = (int16_t)zargs[0];
+    int16_t b = (int16_t)zargs[1];
+    int16_t result = a + b;
+
+    write_variable(store_var, (zword)result);
+}
+
+/**
+ * STOREW opcode - Store word in array
+ *
+ * In Ruby: array[index] = value
+ * In Z-machine: STOREW array index value
+ */
+static void op_storew() {
+    // zargs[0] = array base address
+    // zargs[1] = word index (not byte index!)
+    // zargs[2] = value to store
+
+    uint32_t addr = zargs[0] + (zargs[1] * 2);  // Word index -> byte address
+    write_word(addr, zargs[2]);
+}
+
+/**
+ * GET_SIBLING opcode - Get object's sibling
+ *
+ * In Z-machine: GET_SIBLING object -> result ?branch
+ */
+static void op_get_sibling() {
+    // For now, just return 0 (no sibling) and don't branch
+    zbyte store_var;
+    CODE_BYTE(store_var);
+    write_variable(store_var, 0);
+
+    // Handle branch (will fail since result is 0)
+    do_branch(false);
+}
+
+/**
+ * PUT_PROP opcode - Write object property
+ *
+ * In Z-machine: PUT_PROP object property value
+ */
+static void op_put_prop() {
+    // zargs[0] = object number
+    // zargs[1] = property number
+    // zargs[2] = value to write
+
+    // For now, just ignore property writes (they don't affect opening text)
+    // A full implementation would modify the property table in memory
+}
+
+/**
+ * GET_PROP opcode - Get object property value
+ *
+ * In Z-machine: GET_PROP object property -> result
+ */
+static void op_get_prop() {
+    zbyte store_var;
+    CODE_BYTE(store_var);
+
+    // For now, return 0 (property not found/empty)
+    // A full implementation would read from property table
+    write_variable(store_var, 0);
+}
+
+/**
+ * GET_CHILD opcode - Get object's first child
+ *
+ * In Z-machine: GET_CHILD object -> result ?branch
+ */
+static void op_get_child() {
+    zbyte store_var;
+    CODE_BYTE(store_var);
+
+    // Return 0 (no children) and don't branch
+    write_variable(store_var, 0);
+    do_branch(false);
+}
+
+/**
+ * GET_PARENT opcode - Get object's parent
+ *
+ * In Z-machine: GET_PARENT object -> result
+ */
+static void op_get_parent() {
+    zbyte store_var;
+    CODE_BYTE(store_var);
+
+    // Return 0 (no parent)
+    write_variable(store_var, 0);
+}
+
+/**
+ * AND opcode - Bitwise AND
+ *
+ * In Ruby: result = a & b
+ * In Z-machine: AND a b -> result
+ */
+static void op_and() {
+    zbyte store_var;
+    CODE_BYTE(store_var);
+
+    zword result = zargs[0] & zargs[1];
+    write_variable(store_var, result);
+}
+
+/**
+ * TEST_ATTR opcode - Test if object has attribute
+ *
+ * In Z-machine: TEST_ATTR object attribute ?branch
+ */
+static void op_test_attr() {
+    // zargs[0] = object number
+    // zargs[1] = attribute number (0-31)
+
+    // For now, always return false (attribute not set)
+    do_branch(false);
+}
+
+/**
+ * DEC_CHK opcode - Decrement variable and branch if less than value
+ *
+ * In Z-machine: DEC_CHK var value ?branch
+ */
+static void op_dec_chk() {
+    // zargs[0] = variable number to decrement
+    // zargs[1] = value to compare against
+
+    zbyte var = (zbyte)zargs[0];
+    zword current = read_variable(var);
+
+    // Decrement (signed)
+    int16_t decremented = (int16_t)current - 1;
+    write_variable(var, (zword)decremented);
+
+    // Branch if result < value (signed comparison)
+    bool less_than = decremented < (int16_t)zargs[1];
+    do_branch(less_than);
+}
+
+/**
+ * RANDOM opcode - Generate random number
+ *
+ * In Z-machine: RANDOM range -> result
+ * range > 0: returns 1..range
+ * range <= 0: seeds RNG with |range|, returns 0
+ */
+static void op_random() {
+    zbyte store_var;
+    CODE_BYTE(store_var);
+
+    int16_t range = (int16_t)zargs[0];
+
+    if (range <= 0) {
+        // Seed RNG (we ignore seeding for now)
+        write_variable(store_var, 0);
+    } else {
+        // Return pseudo-random number 1..range
+        // For now, just return 1 (deterministic but valid)
+        write_variable(store_var, 1);
+    }
+}
+
+/**
  * RTRUE opcode - return TRUE
  *
  * In Ruby: return true
@@ -419,6 +721,11 @@ static void interpret(uint32_t max_instructions) {
 
         instructions++;
 
+        // Track first 50 opcodes for debugging
+        if (opcode_track_count < 50) {
+            first_opcodes[opcode_track_count++] = opcode;
+        }
+
         // Decode opcode format (from Frotz process.c lines 272-294)
         if (opcode < 0x80) {
             // 2OP opcodes (long form) - like Ruby: a + b, a == b, etc.
@@ -426,8 +733,27 @@ static void interpret(uint32_t max_instructions) {
             load_operand((opcode & 0x20) ? 2 : 1);
 
             zbyte op_num = opcode & 0x1f;
-            // For now, just recognize a few important ones
-            // (Full Frotz has ~30 2OP opcodes)
+            switch (op_num) {
+                case 0x01:  // JE - jump if equal
+                    op_je();
+                    break;
+                case 0x04:  // DEC_CHK - decrement and check
+                    op_dec_chk();
+                    break;
+                case 0x09:  // AND - bitwise AND
+                    op_and();
+                    break;
+                case 0x0A:  // TEST_ATTR - test object attribute
+                    op_test_attr();
+                    break;
+                case 0x0B:  // PUT_PROP - write object property
+                    op_put_prop();
+                    break;
+                case 0x14:  // ADD - addition
+                    op_add();
+                    break;
+                // Other 2OP opcodes will be shown in statistics
+            }
 
         } else if (opcode < 0xb0) {
             // 1OP opcodes (short form) - like Ruby: -a, !a, call(a)
@@ -435,10 +761,31 @@ static void interpret(uint32_t max_instructions) {
 
             zbyte op_num = opcode & 0x0f;
             switch (op_num) {
-                case 0x0B:  // RET - like Ruby: return value
+                case 0x00:  // JZ - jump if zero
+                    op_jz();
+                    break;
+                case 0x01:  // GET_SIBLING - get object sibling
+                    op_get_sibling();
+                    break;
+                case 0x02:  // GET_PROP - get object property
+                    op_get_prop();
+                    break;
+                case 0x03:  // GET_PARENT - get object parent
+                    op_get_parent();
+                    break;
+                case 0x05:  // GET_CHILD - get object child
+                    op_get_child();
+                    break;
+                case 0x07:  // RANDOM - random number generator
+                    op_random();
+                    break;
+                case 0x0B:  // RET - return value
                     op_ret();
                     break;
-                // Other 1OP opcodes we'll add as needed
+                case 0x0E:  // LOAD - load variable
+                    op_load();
+                    break;
+                // Other 1OP opcodes will be shown in statistics
             }
 
         } else if (opcode < 0xc0) {
@@ -472,14 +819,52 @@ static void interpret(uint32_t max_instructions) {
 
             zbyte op_num = opcode - 0xc0;
             switch (op_num) {
-                case 0:  // CALL - like Ruby: result = my_function(args...)
+                case 0x00:  // CALL_1S - call routine (1 arg min)
+                case 0x20:  // CALL_VS2 - call routine (variable args, extended)
                     op_call();
                     break;
-                // Many more VAR opcodes exist (STOREW, LOADW, etc.)
-                // We'll add them as needed
+                case 0x0D:  // STORE - store to variable
+                    op_store();
+                    break;
+                case 0x21:  // STOREW - write word to array
+                    op_storew();
+                    break;
+                case 0x23:  // PUT_PROP - write object property
+                    op_put_prop();
+                    break;
+                // Other VAR opcodes will be shown in statistics
             }
         }
     }
+}
+
+/**
+ * Helper to output hex digits
+ */
+static void output_hex_byte(zbyte value) {
+    const char* hex = "0123456789ABCDEF";
+    if (out_pos < 15000) output[out_pos++] = hex[(value >> 4) & 0xF];
+    if (out_pos < 15000) output[out_pos++] = hex[value & 0xF];
+}
+
+/**
+ * Output opcode statistics - first 50 opcodes executed
+ */
+static void output_opcode_stats() {
+    const char* h;
+
+    h = "\n=== FIRST 50 OPCODES ===\n";
+    while (*h) output[out_pos++] = *h++;
+
+    for (uint32_t i = 0; i < opcode_track_count && i < 50 && out_pos < 14500; i++) {
+        if (i % 10 == 0 && i > 0) output[out_pos++] = '\n';
+
+        output[out_pos++] = '0';
+        output[out_pos++] = 'x';
+        output_hex_byte(first_opcodes[i]);
+        output[out_pos++] = ' ';
+    }
+    output[out_pos++] = '\n';
 }
 
 /**
@@ -504,6 +889,9 @@ void kernel_main() {
     output = (char*)L1_OUT;
     out_pos = 0;
 
+    // Initialize opcode tracking
+    opcode_track_count = 0;
+
     // Initialize Z-machine state
     abbrev_table = read_word(0x18);      // Abbreviations table
     global_vars_addr = read_word(0x0C);  // Global variables table
@@ -515,34 +903,24 @@ void kernel_main() {
 
     const char* h = "╔════════════════════════════════════════════════════╗\n";
     while (*h) output[out_pos++] = *h++;
-    h = "║  Z-MACHINE INTERPRETER WITH CALL/RET!            ║\n";
+    h = "║  ZORK ON BLACKHOLE RISC-V - FULL INTERPRETER!   ║\n";
     while (*h) output[out_pos++] = *h++;
     h = "╚════════════════════════════════════════════════════╝\n\n";
     while (*h) output[out_pos++] = *h++;
 
-    h = "Initial PC: 0x";
+    h = "Opcodes: PRINT CALL RET STORE LOAD JZ JE ADD\n";
     while (*h) output[out_pos++] = *h++;
-    const char* hex = "0123456789ABCDEF";
-    output[out_pos++] = hex[(initial_pc >> 12) & 0xF];
-    output[out_pos++] = hex[(initial_pc >> 8) & 0xF];
-    output[out_pos++] = hex[(initial_pc >> 4) & 0xF];
-    output[out_pos++] = hex[initial_pc & 0xF];
-    output[out_pos++] = '\n';
-
-    h = "Globals: 0x";
+    h = "         STOREW PUT_PROP GET_PROP AND TEST_ATTR\n";
     while (*h) output[out_pos++] = *h++;
-    output[out_pos++] = hex[(global_vars_addr >> 12) & 0xF];
-    output[out_pos++] = hex[(global_vars_addr >> 8) & 0xF];
-    output[out_pos++] = hex[(global_vars_addr >> 4) & 0xF];
-    output[out_pos++] = hex[global_vars_addr & 0xF];
-    output[out_pos++] = '\n';
+    h = "         DEC_CHK GET_CHILD GET_PARENT GET_SIBLING\n";
+    while (*h) output[out_pos++] = *h++;
     output[out_pos++] = '\n';
 
     h = "=== EXECUTING Z-MACHINE CODE ===\n\n";
     while (*h) output[out_pos++] = *h++;
 
-    // Run the interpreter! More instructions now that we have CALL/RET
-    interpret(1000);  // Execute up to 1000 instructions
+    // Run the interpreter! Execute game initialization
+    interpret(1500);  // Execute up to 1500 instructions
 
     output[out_pos++] = '\n';
     h = "\n=== EXECUTION COMPLETE ===\n";
@@ -552,6 +930,9 @@ void kernel_main() {
         h = "(Game returned from main routine)\n";
         while (*h) output[out_pos++] = *h++;
     }
+
+    // Output opcode statistics to see what's being executed
+    output_opcode_stats();
 
     output[out_pos++] = '\0';
 

@@ -139,10 +139,10 @@ int main(int argc, char* argv[]) {
 
         // Create kernel on RISC-V core
         // Note: Using absolute path to ensure TT-Metal finds the kernel
-        // Z-MACHINE INTERPRETER - Based on Frotz interpret() loop!
+        // OBJECT DECODER WITH ABBREVIATIONS - Test perfect "West of House"!
         KernelHandle kernel_id = CreateKernel(
             program,
-            "/home/ttuser/tt-zork1/kernels/zork_interpreter.cpp",
+            "/home/ttuser/tt-zork1/kernels/zork_objects_with_abbrev.cpp",
             ZORK_CORE,
             DataMovementConfig{
                 .processor = DataMovementProcessor::RISCV_0,
@@ -157,11 +157,11 @@ int main(int argc, char* argv[]) {
             ZORK_CORE,
             {
                 game_buffer->address(),      // arg[0]: game data address
-                (uint32_t)game_data.size(),  // arg[1]: game data size
-                input_buffer->address(),     // arg[2]: input buffer address
-                MAX_INPUT_SIZE,              // arg[3]: input buffer size
+                0,                           // arg[1]: unused
+                0,                           // arg[2]: unused
+                0,                           // arg[3]: unused
                 output_buffer->address(),    // arg[4]: output buffer address
-                MAX_OUTPUT_SIZE              // arg[5]: output buffer size
+                0                            // arg[5]: unused
             }
         );
 
