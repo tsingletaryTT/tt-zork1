@@ -48,8 +48,9 @@ int main() {
         Program program = CreateProgram();
         std::cout << " done" << std::endl;
 
-        // Create kernel
-        std::cout << "[4/7] Creating kernel..." << std::flush;
+        // Create simplest possible kernel - no args at all
+        std::cout << "[4/7] Creating ultra-minimal kernel..." << std::flush;
+
         KernelHandle kernel_id = CreateKernel(
             program,
             "/home/ttuser/tt-zork1/kernels/hello_riscv.cpp",
@@ -57,18 +58,13 @@ int main() {
             DataMovementConfig{
                 .processor = DataMovementProcessor::RISCV_0,
                 .noc = NOC::RISCV_0_default
+                // NO compile_args, NO runtime_args
             }
         );
         std::cout << " done" << std::endl;
 
-        // Set runtime args
-        // NOTE: Kernel uses hardcoded 0x1000 address because get_arg_val() hangs with MeshWorkload
-        std::cout << "[5/7] Setting runtime args..." << std::flush;
-        uint64_t buffer_addr = output_buffer->address();
-        std::vector<uint32_t> runtime_args = {
-            static_cast<uint32_t>(buffer_addr)
-        };
-        SetRuntimeArgs(program, kernel_id, TEST_CORE, runtime_args);
+        // No args whatsoever!
+        std::cout << "[5/7] No args needed..." << std::flush;
         std::cout << " done" << std::endl;
 
         // Execute kernel
