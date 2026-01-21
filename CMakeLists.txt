@@ -24,4 +24,9 @@ add_executable(test_full_structure)
 target_sources(test_full_structure PRIVATE test_full_structure.cpp)
 target_link_libraries(test_full_structure PUBLIC TT::Metalium)
 
+# Test with buffer allocation
+add_executable(test_buffers)
+target_sources(test_buffers PRIVATE test_buffers.cpp)
+target_link_libraries(test_buffers PUBLIC TT::Metalium)
+
 # TODO: Add kernel compilation target later
