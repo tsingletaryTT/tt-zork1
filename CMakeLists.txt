@@ -29,4 +29,9 @@ add_executable(test_buffers)
 target_sources(test_buffers PRIVATE test_buffers.cpp)
 target_link_libraries(test_buffers PUBLIC TT::Metalium)
 
+# Test with minimal hello world kernel
+add_executable(test_hello_kernel)
+target_sources(test_hello_kernel PRIVATE test_hello_kernel.cpp)
+target_link_libraries(test_hello_kernel PUBLIC TT::Metalium)
+
 # TODO: Add kernel compilation target later

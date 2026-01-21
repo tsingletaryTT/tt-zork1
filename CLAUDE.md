@@ -952,50 +952,114 @@ This is likely the **FIRST TIME EVER** that a Z-machine interpreter has executed
 - `build-host/zork_on_blackhole` - Compiled binary (ready to run)
 - `docs/V3_OPCODES.md` - Opcode implementation tracking
 
-**POST-REBOOT STATUS (Jan 20, 2026 17:18 UTC):**
+**BREAKTHROUGH - Hardware is Fine! (Jan 21, 2026 00:30 UTC):**
 
-Reboot DID NOT resolve the firmware initialization issue. Same error persists:
+User proved hardware works by running llama-3.1-8b model successfully on the same chips. The "hardware fault" hypothesis was INCORRECT - the issue was our device initialization pattern!
+
+**Root Cause:**
+Recent TT-Metal requires creating mesh for ALL devices in the system, then creating a submesh for the specific device you want to use. The old `create_unit_mesh(0)` API no longer works.
+
+**Fix:**
+```cpp
+// OLD (BROKEN):
+auto mesh_device = MeshDevice::create_unit_mesh(0);
+
+// NEW (WORKS):
+const auto system_mesh_shape = SystemMesh::instance().shape();  // Returns [2,1]
+auto parent_mesh = MeshDevice::create(MeshDeviceConfig(system_mesh_shape));
+auto mesh_device = parent_mesh->create_submesh(MeshShape(1, 1));
 ```
-Device 0: Timeout (10000 ms) waiting for physical cores to finish: (x=1,y=2).
-Device 0 init: failed to initialize FW! Try resetting the board.
+
+**Incremental Testing Results:**
+1. ✅ `test_device_init.cpp` - Device init with new pattern works (<1s)
+2. ✅ `test_simple_kernel.cpp` - Device init + game file loading works
+3. ✅ `test_full_structure.cpp` - Full program structure without kernel execution works
+4. ✅ `test_buffers.cpp` - Device init + buffer allocation + data upload works
+5. ❌ `test_hello_kernel.cpp` - **HANGS during kernel execution**
+
+**CRITICAL FINDING - Kernel Execution Issue (Jan 21, 2026 00:40 UTC):**
+
+Created minimal "Hello World" RISC-V kernel to test if ANY kernel can execute. Result: **Even the minimal kernel hangs!**
+
+**Hang Point:**
+```
+[5/7] Setting runtime args... done
+[6/7] Executing kernel on RISC-V... [HANGS HERE]
 ```
 
-**Analysis:**
-- Error occurs during `MeshDevice::create_unit_mesh(0)` initialization
-- Core (x=1,y=2) is a TT-Metal system core (not our application core at 0,0)
-- Hardware telemetry shows no faults, normal temperatures
-- Harvesting mask for chip 0: tensix=0x101, dram=0x0, eth=0x120, pcie=0x2
-- This appears to be either:
-  1. A hardware fault at core (x=1,y=2) requiring RMA
-  2. A TT-Metal firmware/driver issue with v19.4.0
-  3. An environmental configuration problem
+The hang occurs during `EnqueueMeshWorkload(cq, workload, false)` or `Finish(cq)`.
 
-**Recommendation:**
-This is beyond code-level fixes. Needs investigation by someone with:
-- Access to TT-Metal firmware logs
-- Ability to run hardware diagnostics on specific cores
-- Knowledge of TT-Metal firmware initialization sequence
-- Potentially access to alternate Blackhole hardware for comparison
+**What This Proves:**
+- Issue is NOT specific to Z-machine interpreter complexity
+- Issue is NOT related to buffer operations (those work)
+- Issue IS related to RISC-V kernel execution on MeshDevice
 
-**HARDWARE FAULT CONFIRMED (Jan 20, 2026 20:34 UTC):**
+**Tested Configurations:**
+- ❌ `EnqueueMeshWorkload(..., true)` - blocking mode (hangs)
+- ❌ `EnqueueMeshWorkload(..., false) + Finish(cq)` - non-blocking + explicit finish (hangs)
+- ❌ `TT_METAL_SLOW_DISPATCH_MODE=1` - slow dispatch mode (hangs)
 
-After exhaustive debugging, confirmed this is a hardware fault at core (x=1,y=2):
+**Minimal Hello Kernel (kernels/hello_riscv.cpp):**
+```cpp
+#include <cstdint>
+#include "api/dataflow/dataflow_api.h"
 
-**Tests Performed:**
-1. ✅ Created minimal device init test (`test_device_init.cpp`) - even bare device creation fails
-2. ✅ Updated TT-Metal to latest main (1baf917637) - still fails
-3. ✅ Reverted TT-Metal to d4fd413eb1 (version from when it worked at 02:10) - still fails
-4. ✅ Complete TT-Metal rebuild at working version - still fails
-5. ✅ Multiple hardware resets, system reboot, firmware upgrade - still fails
+void kernel_main() {
+    uint32_t output_addr = get_arg_val<uint32_t>(0);  // Get buffer address from runtime args
+    volatile char* output = reinterpret_cast<volatile char*>(output_addr);
+    const char* msg = "HELLO FROM RISC-V!\n";
+    for (int i = 0; msg[i] != '\0'; i++) {
+        output[i] = msg[i];
+    }
+    output[19] = '\0';
+}
+```
 
-**Evidence:**
-- Worked at 02:10 (commit 523dd47 with TT-Metal d4fd413eb1)
-- Broken by 03:06 (no code changes, no TT-Metal changes)
-- Persists across all software versions, rebuilds, and reboots
-- Affects ALL TT-Metal programs, not just our code
-- Minimal test (`MeshDevice::create_unit_mesh(0)`) fails identically
+**Current Status:**
+Device initialization and buffer operations work perfectly. Kernel execution hangs regardless of kernel complexity or dispatch mode. Need to investigate:
+1. Whether MeshDevice/MeshWorkload is appropriate for single-device RISC-V kernels
+2. Alternative execution APIs (direct Device access vs Mesh APIs)
+3. Core selection or processor configuration issues
+4. Whether submesh kernels require different setup than full mesh
 
-**Conclusion:** Core (x=1,y=2) developed a physical hardware fault between 02:10 and 03:06 today. Requires hardware diagnostic testing or RMA/repair.
+**Files Created During Investigation:**
+- `test_device_init.cpp` - Minimal device init test
+- `test_simple_kernel.cpp` - Device init + file loading
+- `test_full_structure.cpp` - Full structure without kernel
+- `test_buffers.cpp` - Buffer allocation test
+- `test_hello_kernel.cpp` - Minimal kernel execution test
+- `kernels/hello_riscv.cpp` - 19-byte hello world kernel
 
-**Application Status:**
-All Zork interpreter improvements are complete, committed, and ready for testing once hardware is repaired. See `HARDWARE_FAULT_REPORT.md` for detailed evidence and support documentation.
+**MAJOR BREAKTHROUGH - Runtime Args Issue Identified! (Jan 21, 2026 01:22 UTC):**
+
+After extensive testing, identified the root cause of kernel execution hangs:
+
+**The Problem:**
+- ✅ Kernel execution works fine
+- ✅ Including `dataflow_api.h` works fine
+- ❌ Calling `get_arg_val<uint32_t>(0)` causes HANG
+- ❌ Calling `get_common_arg_val<uint32_t>(0)` also causes HANG
+
+**Root Cause:**
+The `get_arg_val` function accesses `rta_l1_base[arg_idx]` which points to runtime args in L1 memory. This pointer is initialized by `firmware_config_init()` based on kernel launch messages. When using MeshWorkload APIs, this initialization either fails or the pointer is invalid, causing the kernel to hang when dereferencing it.
+
+**Workaround:**
+Read runtime args from hardcoded L1 address instead of using TT-Metal APIs:
+```cpp
+// WORKS (workaround):
+volatile uint32_t* args = reinterpret_cast<volatile uint32_t*>(0x1000);
+uint32_t output_addr = args[0];
+
+// HANGS (standard API):
+uint32_t output_addr = get_arg_val<uint32_t>(0);
+```
+
+**Test Results:**
+- With hardcoded address: ✅ Kernel executes successfully
+- With get_arg_val: ❌ Hangs during EnqueueMeshWorkload
+
+**Next Steps:**
+1. Find correct L1 address for runtime args (0x1000 is placeholder)
+2. Apply workaround to full Zork interpreter
+3. File issue with TT-Metal team about MeshWorkload + runtime args incompatibility
+4. Test if issue exists with non-Mesh APIs (direct Device execution)
