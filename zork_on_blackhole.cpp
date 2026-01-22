@@ -41,9 +41,13 @@ constexpr const char* DEFAULT_GAME_FILE = "game/zork1.z3";
 constexpr uint32_t MAX_GAME_SIZE = 128 * 1024;  // 128KB for game file
 constexpr uint32_t MAX_INPUT_SIZE = 1024;        // 1KB for user input
 constexpr uint32_t MAX_OUTPUT_SIZE = 16 * 1024;  // 16KB for game output
+constexpr uint32_t MAX_STATE_SIZE = 16 * 1024;   // 16KB for Z-machine state
 
 // Core to run kernel on
 constexpr CoreCoord ZORK_CORE = {0, 0};
+
+// State persistence file
+constexpr const char* STATE_FILE = "/tmp/zork_state.bin";
 
 /**
  * Load game file from filesystem into memory buffer
@@ -75,12 +79,18 @@ std::vector<uint8_t> load_game_file(const char* filename) {
  */
 int main(int argc, char* argv[]) {
     const char* game_file = (argc > 1) ? argv[1] : DEFAULT_GAME_FILE;
+    const int num_batches = (argc > 2) ? atoi(argv[2]) : 1;  // Default: 1 batch (single-shot)
 
     std::cout << "╔══════════════════════════════════════════════════════════╗" << std::endl;
     std::cout << "║  ZORK I on Tenstorrent Blackhole RISC-V Cores" << std::endl;
     std::cout << "║  1977 Game on 2026 AI Accelerator" << std::endl;
     std::cout << "╚══════════════════════════════════════════════════════════╝" << std::endl;
     std::cout << std::endl;
+
+    if (num_batches > 1) {
+        std::cout << "Batched execution: " << num_batches << " batches (each = 100 instructions)" << std::endl;
+        std::cout << std::endl;
+    }
 
     try {
         // Load game file from host filesystem
@@ -118,6 +128,11 @@ int main(int argc, char* argv[]) {
             .buffer_type = BufferType::DRAM
         };
 
+        distributed::DeviceLocalBufferConfig state_dram_config{
+            .page_size = MAX_STATE_SIZE,  // 16KB page = whole buffer in one page
+            .buffer_type = BufferType::DRAM
+        };
+
         // Create DRAM buffers for host-device communication
         auto game_buffer = distributed::MeshBuffer::create(
             distributed::ReplicatedBufferConfig{.size = MAX_GAME_SIZE},
@@ -131,72 +146,107 @@ int main(int argc, char* argv[]) {
             mesh_device.get()
         );
 
+        auto state_buffer = distributed::MeshBuffer::create(
+            distributed::ReplicatedBufferConfig{.size = MAX_STATE_SIZE},
+            state_dram_config,
+            mesh_device.get()
+        );
+
         // Upload game data to DRAM
         std::cout << "[Host] Uploading game data to DRAM..." << std::endl;
         EnqueueWriteMeshBuffer(cq, game_buffer, game_data, /*blocking=*/true);
+
+        // Load or initialize state buffer
+        std::vector<uint8_t> state_data(MAX_STATE_SIZE, 0);
+        std::ifstream state_file(STATE_FILE, std::ios::binary);
+        if (state_file) {
+            // Resume from previous run
+            state_file.read(reinterpret_cast<char*>(state_data.data()), MAX_STATE_SIZE);
+            state_file.close();
+            std::cout << "[Host] Loaded previous state from " << STATE_FILE << std::endl;
+        } else {
+            // First run - start fresh
+            std::cout << "[Host] No previous state found, starting fresh" << std::endl;
+        }
+        EnqueueWriteMeshBuffer(cq, state_buffer, state_data, /*blocking=*/true);
 
         std::cout << "[Host] Device initialized successfully!" << std::endl;
         std::cout << "       - Game data: " << game_data.size() << " bytes in DRAM" << std::endl;
         std::cout << "       - Game buffer at DRAM address: 0x" << std::hex << game_buffer->address() << std::dec << std::endl;
         std::cout << "       - Output buffer at DRAM address: 0x" << std::hex << output_buffer->address() << std::dec << std::endl;
+        std::cout << "       - State buffer at DRAM address: 0x" << std::hex << state_buffer->address() << std::dec << std::endl;
         std::cout << std::endl;
 
-        // Create program and kernel
-        std::cout << "[Host] Creating Zork interpreter kernel..." << std::endl;
-        Program program = CreateProgram();
-
-        // Pass buffer addresses as compile-time defines!
-        std::map<std::string, std::string> kernel_defines;
-        char addr_buf[32];
-        snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)game_buffer->address());
-        kernel_defines["GAME_DRAM_ADDR"] = addr_buf;
-        snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)output_buffer->address());
-        kernel_defines["OUTPUT_DRAM_ADDR"] = addr_buf;
-
-        std::cout << "[Host] Kernel defines: GAME_DRAM_ADDR=" << kernel_defines["GAME_DRAM_ADDR"]
-                  << ", OUTPUT_DRAM_ADDR=" << kernel_defines["OUTPUT_DRAM_ADDR"] << std::endl;
-
-        KernelHandle kernel_id = CreateKernel(
-            program,
-            "/home/ttuser/tt-zork1/kernels/zork_interpreter.cpp",
-            ZORK_CORE,
-            DataMovementConfig{
-                .processor = DataMovementProcessor::RISCV_0,
-                .noc = NOC::RISCV_0_default,
-                .defines = kernel_defines
-            }
-        );
-        std::cout << "[Host] Full Zork interpreter kernel created with buffer defines!" << std::endl;
-
-        // Execute kernel!
-        std::cout << std::endl;
-        std::cout << "🚀 LAUNCHING ZORK ON BLACKHOLE RISC-V! 🚀" << std::endl;
+        // Run batches
+        std::string accumulated_output;
         std::cout << std::endl;
 
-        workload.add_program(device_range, std::move(program));
-        distributed::EnqueueMeshWorkload(cq, workload, /*blocking=*/true);  // BLOCK until done
+        for (int batch = 0; batch < num_batches; batch++) {
+            std::cout << "--- Batch " << (batch + 1) << "/" << num_batches << " ---" << std::endl;
 
-        std::cout << "[Host] Kernel execution complete!" << std::endl;
-        std::cout << "[Host] Reading output buffer..." << std::endl;
+            // Create program and kernel
+            Program program = CreateProgram();
 
-        // Read output from kernel
-        std::vector<char> output_data(MAX_OUTPUT_SIZE);
-        distributed::EnqueueReadMeshBuffer(cq, output_data, output_buffer, /*blocking=*/true);
+            // Pass buffer addresses as compile-time defines!
+            std::map<std::string, std::string> kernel_defines;
+            char addr_buf[32];
+            snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)game_buffer->address());
+            kernel_defines["GAME_DRAM_ADDR"] = addr_buf;
+            snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)output_buffer->address());
+            kernel_defines["OUTPUT_DRAM_ADDR"] = addr_buf;
+            snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)state_buffer->address());
+            kernel_defines["STATE_DRAM_ADDR"] = addr_buf;  // Enable state persistence!
 
-        // Debug: Show first 64 bytes in hex
-        std::cout << "[Host] First 64 bytes of output buffer (hex):" << std::endl;
-        for (int i = 0; i < 64; i++) {
-            printf("%02x ", (unsigned char)output_data[i]);
-            if ((i + 1) % 16 == 0) printf("\n");
+            KernelHandle kernel_id = CreateKernel(
+                program,
+                "/home/ttuser/tt-zork1/kernels/zork_interpreter.cpp",
+                ZORK_CORE,
+                DataMovementConfig{
+                    .processor = DataMovementProcessor::RISCV_0,
+                    .noc = NOC::RISCV_0_default,
+                    .defines = kernel_defines
+                }
+            );
+
+            // Execute kernel
+            distributed::MeshWorkload workload;
+            distributed::MeshCoordinateRange device_range(mesh_device->shape());
+            workload.add_program(device_range, std::move(program));
+            distributed::EnqueueMeshWorkload(cq, workload, /*blocking=*/false);
+            distributed::Finish(cq);
+
+            // Read output from this batch
+            std::vector<char> output_data(MAX_OUTPUT_SIZE);
+            distributed::EnqueueReadMeshBuffer(cq, output_data, output_buffer, /*blocking=*/true);
+
+            // Read state buffer (for persistence across runs)
+            distributed::EnqueueReadMeshBuffer(cq, state_data, state_buffer, /*blocking=*/true);
+
+            // Accumulate output
+            accumulated_output += output_data.data();
+
+            std::cout << "Batch " << (batch + 1) << " complete!" << std::endl;
+            std::cout << std::endl;
         }
-        std::cout << std::endl;
 
-        // Display output!
+        // Save state to file for next run
+        std::ofstream out_state_file(STATE_FILE, std::ios::binary);
+        if (out_state_file) {
+            out_state_file.write(reinterpret_cast<const char*>(state_data.data()), MAX_STATE_SIZE);
+            out_state_file.close();
+            std::cout << "[Host] Saved state to " << STATE_FILE << " for next run" << std::endl;
+        } else {
+            std::cerr << "[Host] Warning: Failed to save state file" << std::endl;
+        }
+
+        std::cout << "All batches complete!" << std::endl;
+
+        // Display accumulated output!
         std::cout << std::endl;
         std::cout << "╔════════════════════════════════════════════════════╗" << std::endl;
-        std::cout << "║  ZORK OUTPUT FROM BLACKHOLE RISC-V CORE           ║" << std::endl;
+        std::cout << "║  ACCUMULATED ZORK OUTPUT FROM RISC-V              ║" << std::endl;
         std::cout << "╠════════════════════════════════════════════════════╣" << std::endl;
-        std::cout << output_data.data() << std::endl;
+        std::cout << accumulated_output << std::endl;
         std::cout << "╚════════════════════════════════════════════════════╝" << std::endl;
 
         // Cleanup (close submesh first, then parent mesh)
