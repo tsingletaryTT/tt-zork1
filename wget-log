@@ -1,0 +1,15 @@
+--2026-01-22 16:12:44--  https://ppa.tenstorrent.com/tt-pkg-key.asc
+Resolving ppa.tenstorrent.com (ppa.tenstorrent.com)... 3.138.98.188, 3.14.60.173, 18.221.55.252
+Connecting to ppa.tenstorrent.com (ppa.tenstorrent.com)|3.138.98.188|:443... connected.
+HTTP request sent, awaiting response... 301 Moved Permanently
+Location: https://ppa.tenstorrent.com/ubuntu/tt-pkg-key.asc [following]
+--2026-01-22 16:12:44--  https://ppa.tenstorrent.com/ubuntu/tt-pkg-key.asc
+Reusing existing connection to ppa.tenstorrent.com:443.
+HTTP request sent, awaiting response... 200 OK
+Length: 656 [text/plain]
+Saving to: ‘/etc/apt/keyrings/tt-pkg-key.asc’
+
+     0K                                                       100%  218M=0s
+
+2026-01-22 16:12:45 (218 MB/s) - ‘/etc/apt/keyrings/tt-pkg-key.asc’ saved [656/656]
+
