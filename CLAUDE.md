@@ -1063,3 +1063,52 @@ uint32_t output_addr = get_arg_val<uint32_t>(0);
 2. Apply workaround to full Zork interpreter
 3. File issue with TT-Metal team about MeshWorkload + runtime args incompatibility
 4. Test if issue exists with non-Mesh APIs (direct Device execution)
+
+**MAJOR BREAKTHROUGH - Kernel Execution Without Args! (Jan 21, 2026 19:07 UTC):**
+
+After system reboot and continued investigation, achieved kernel execution success!
+
+**The Key Discovery:**
+Remove ALL arg APIs completely - no `get_arg_val()`, no `get_compile_time_arg_val()`, nothing!
+
+**Working Configuration:**
+```cpp
+// Kernel:
+void kernel_main() {
+    volatile char* l1_buffer = reinterpret_cast<volatile char*>(0x20000);
+    const char* msg = "HELLO FROM RISC-V!\n";
+    for (int i = 0; msg[i] != '\0'; i++) {
+        l1_buffer[i] = msg[i];
+    }
+}
+
+// Host:
+KernelHandle kernel_id = CreateKernel(
+    program,
+    "/home/ttuser/tt-zork1/kernels/hello_riscv.cpp",
+    TEST_CORE,
+    DataMovementConfig{
+        .processor = DataMovementProcessor::RISCV_0,
+        .noc = NOC::RISCV_0_default
+        // NO compile_args, NO runtime_args
+    }
+);
+```
+
+**Test Results:**
+```
+[6/7] Executing kernel on RISC-V... done
+✅ SUCCESS! Kernel executed!
+```
+
+**Status:** Kernel executes successfully! Writes to L1 at 0x20000 and completes cleanly.
+
+**Next Steps:**
+1. Use NoC APIs to copy from L1 to DRAM for visible output
+2. Figure out how to pass buffer addresses without arg APIs
+3. Apply approach to full Zork interpreter
+
+**System Changes After Reboot:**
+- Now detecting 4 Blackhole devices instead of 2 (chips 0, 1, 2, 3)
+- Mesh shape changed from [2,1] to [4,4]
+- All devices initializing successfully

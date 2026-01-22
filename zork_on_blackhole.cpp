@@ -113,81 +113,70 @@ int main(int argc, char* argv[]) {
         distributed::MeshCoordinateRange device_range =
             distributed::MeshCoordinateRange(mesh_device->shape());
 
-        // Configure DRAM buffers for game data, input, and output
+        // Use DRAM for host-device communication (L1 might not be visible to host)
         std::cout << "[Host] Allocating DRAM buffers..." << std::endl;
 
-        distributed::DeviceLocalBufferConfig dram_config{
-            .page_size = 1024,  // 1KB pages
+        // For non-interleaved DRAM buffers, page_size must equal buffer size
+        // Use separate configs for each buffer to ensure contiguous allocation
+        distributed::DeviceLocalBufferConfig game_dram_config{
+            .page_size = MAX_GAME_SIZE,  // 128KB page = whole buffer in one page
             .buffer_type = BufferType::DRAM
         };
 
-        // Create buffers
+        distributed::DeviceLocalBufferConfig output_dram_config{
+            .page_size = MAX_OUTPUT_SIZE,  // 16KB page = whole buffer in one page
+            .buffer_type = BufferType::DRAM
+        };
+
+        // Create DRAM buffers for host-device communication
         auto game_buffer = distributed::MeshBuffer::create(
             distributed::ReplicatedBufferConfig{.size = MAX_GAME_SIZE},
-            dram_config,
-            mesh_device.get()
-        );
-
-        auto input_buffer = distributed::MeshBuffer::create(
-            distributed::ReplicatedBufferConfig{.size = MAX_INPUT_SIZE},
-            dram_config,
+            game_dram_config,
             mesh_device.get()
         );
 
         auto output_buffer = distributed::MeshBuffer::create(
             distributed::ReplicatedBufferConfig{.size = MAX_OUTPUT_SIZE},
-            dram_config,
+            output_dram_config,
             mesh_device.get()
         );
 
         // Upload game data to DRAM
-        std::cout << "[Host] Uploading game data to device DRAM..." << std::endl;
+        std::cout << "[Host] Uploading game data to DRAM..." << std::endl;
         EnqueueWriteMeshBuffer(cq, game_buffer, game_data, /*blocking=*/true);
 
         std::cout << "[Host] Device initialized successfully!" << std::endl;
         std::cout << "       - Game data: " << game_data.size() << " bytes in DRAM" << std::endl;
-        std::cout << "       - Input buffer: " << MAX_INPUT_SIZE << " bytes" << std::endl;
-        std::cout << "       - Output buffer: " << MAX_OUTPUT_SIZE << " bytes" << std::endl;
+        std::cout << "       - Game buffer at DRAM address: 0x" << std::hex << game_buffer->address() << std::dec << std::endl;
+        std::cout << "       - Output buffer at DRAM address: 0x" << std::hex << output_buffer->address() << std::dec << std::endl;
         std::cout << std::endl;
 
         // Create program and kernel
-        std::cout << "[Host] Creating Zork kernel..." << std::endl;
+        std::cout << "[Host] Creating Zork interpreter kernel..." << std::endl;
         Program program = CreateProgram();
 
-        // Create kernel on RISC-V core
-        // Note: Using absolute path to ensure TT-Metal finds the kernel
-        // FULL Z-MACHINE INTERPRETER - Let's run Zork for real!
+        // Pass buffer addresses as compile-time defines!
+        std::map<std::string, std::string> kernel_defines;
+        char addr_buf[32];
+        snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)game_buffer->address());
+        kernel_defines["GAME_DRAM_ADDR"] = addr_buf;
+        snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)output_buffer->address());
+        kernel_defines["OUTPUT_DRAM_ADDR"] = addr_buf;
+
+        std::cout << "[Host] Kernel defines: GAME_DRAM_ADDR=" << kernel_defines["GAME_DRAM_ADDR"]
+                  << ", OUTPUT_DRAM_ADDR=" << kernel_defines["OUTPUT_DRAM_ADDR"] << std::endl;
+
         KernelHandle kernel_id = CreateKernel(
             program,
             "/home/ttuser/tt-zork1/kernels/zork_interpreter.cpp",
             ZORK_CORE,
             DataMovementConfig{
                 .processor = DataMovementProcessor::RISCV_0,
-                .noc = NOC::RISCV_0_default
+                .noc = NOC::RISCV_0_default,
+                .defines = kernel_defines
             }
         );
-
-        std::cout << "[Host] Setting runtime arguments (buffer addresses)..." << std::endl;
-        SetRuntimeArgs(
-            program,
-            kernel_id,
-            ZORK_CORE,
-            {
-                game_buffer->address(),      // arg[0]: game data address
-                0,                           // arg[1]: unused
-                0,                           // arg[2]: unused
-                0,                           // arg[3]: unused
-                output_buffer->address(),    // arg[4]: output buffer address
-                0                            // arg[5]: unused
-            }
-        );
-
-        // Prepare test input
-        std::cout << "[Host] Writing test input: 'look'..." << std::endl;
-        std::vector<char> test_input(MAX_INPUT_SIZE, 0);
-        std::string command = "look\n";
-        std::copy(command.begin(), command.end(), test_input.begin());
-        EnqueueWriteMeshBuffer(cq, input_buffer, test_input, /*blocking=*/true);
+        std::cout << "[Host] Full Zork interpreter kernel created with buffer defines!" << std::endl;
 
         // Execute kernel!
         std::cout << std::endl;
@@ -203,6 +192,14 @@ int main(int argc, char* argv[]) {
         // Read output from kernel
         std::vector<char> output_data(MAX_OUTPUT_SIZE);
         distributed::EnqueueReadMeshBuffer(cq, output_data, output_buffer, /*blocking=*/true);
+
+        // Debug: Show first 64 bytes in hex
+        std::cout << "[Host] First 64 bytes of output buffer (hex):" << std::endl;
+        for (int i = 0; i < 64; i++) {
+            printf("%02x ", (unsigned char)output_data[i]);
+            if ((i + 1) % 16 == 0) printf("\n");
+        }
+        std::cout << std::endl;
 
         // Display output!
         std::cout << std::endl;
