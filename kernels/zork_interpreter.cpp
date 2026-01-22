@@ -1121,29 +1121,50 @@ void kernel_main() {
 
     memory = (zbyte*)L1_GAME;
     output = (char*)L1_OUT;
-    out_pos = 0;
-
-    // Verified: game data loads correctly with 128KB page_size!
 
     // Initialize opcode tracking
     opcode_track_count = 0;
 
-    // Initialize Z-machine state
+    // Initialize global Z-machine constants
     abbrev_table = read_word(0x18);      // Abbreviations table
     global_vars_addr = read_word(0x0C);  // Global variables table
-    zword initial_pc = read_word(0x06);  // Initial program counter
 
-    // IMPORTANT: Z-machine should CALL the initial routine, not jump to it!
-    // Set up a proper call frame for the main routine
-    sp = 0;         // Stack is empty
-    frame_sp = 0;   // No call frames yet
+#ifdef STATE_DRAM_ADDR
+    // BATCHED EXECUTION MODE: Load previous state if exists
+    constexpr uint32_t L1_STATE = 0x50000;  // 320KB into L1 for state
+    constexpr uint32_t STATE_SIZE = sizeof(ZMachineState);
+
+    // Read state from DRAM
+    uint64_t state_dram_noc_addr = get_noc_addr(0, 0, STATE_DRAM_ADDR);
+    noc_async_read(state_dram_noc_addr, L1_STATE, STATE_SIZE);
+    noc_async_read_barrier();
+
+    ZMachineState* state = (ZMachineState*)L1_STATE;
+
+    if (state->instruction_count > 0) {
+        // Resume from previous batch
+        load_state(state);
+        const char* h = "[Resuming from previous batch]\n";
+        while (*h) output[out_pos++] = *h++;
+    } else {
+        // First batch - initialize fresh
+        zword initial_pc = read_word(0x06);
+        sp = 0;
+        frame_sp = 0;
+        finished = false;
+        pc = memory + initial_pc;
+        out_pos = 0;
+        state->instruction_count = 0;
+    }
+#else
+    // SINGLE-SHOT MODE: Always initialize fresh
+    zword initial_pc = read_word(0x06);
+    sp = 0;
+    frame_sp = 0;
     finished = false;
-
-    // Set PC to the start routine and CALL it properly
     pc = memory + initial_pc;
-
-    // Actually, let's just jump to it and see what happens first
-    // (A real Z-machine might need different initialization)
+    out_pos = 0;
+#endif
 
     const char* h = "╔════════════════════════════════════════════════════╗\n";
     while (*h) output[out_pos++] = *h++;
@@ -1181,11 +1202,22 @@ void kernel_main() {
 
     output[out_pos++] = '\0';
 
+#ifdef STATE_DRAM_ADDR
+    // Save state for next batch
+    state->instruction_count += 100;  // We just executed 100 instructions
+    save_state(state);
+
+    // Write state back to DRAM (rounded to 32-byte alignment)
+    uint32_t state_size = ((STATE_SIZE + 31) / 32) * 32;
+    noc_async_write(L1_STATE, state_dram_noc_addr, state_size);
+    noc_async_write_barrier();
+#endif
+
     // Step 2: Use NoC to copy output from L1 to DRAM
     uint32_t output_size = ((out_pos + 31) / 32) * 32;  // Round to 32-byte alignment
     uint64_t output_dram_noc_addr = get_noc_addr(0, 0, OUTPUT_DRAM_ADDR);
     noc_async_write(L1_OUT, output_dram_noc_addr, output_size);
     noc_async_write_barrier();
 
-    // Done! Output transferred from L1 to DRAM, host can read it
+    // Done! Output and state transferred from L1 to DRAM
 }

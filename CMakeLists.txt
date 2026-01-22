@@ -4,10 +4,15 @@ project(zork_on_blackhole)
 # Find TT-Metalium package
 find_package(TT-Metalium REQUIRED)
 
-# Host program
+# Host program - single-shot execution
 add_executable(zork_on_blackhole)
 target_sources(zork_on_blackhole PRIVATE zork_on_blackhole.cpp)
 target_link_libraries(zork_on_blackhole PUBLIC TT::Metalium)
+
+# Host program - batched execution with state persistence
+add_executable(zork_batched)
+target_sources(zork_batched PRIVATE zork_batched.cpp)
+target_link_libraries(zork_batched PUBLIC TT::Metalium)
 
 # Minimal device init test
 add_executable(test_device_init)
