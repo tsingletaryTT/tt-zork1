@@ -53,6 +53,21 @@ static bool finished;
 static zbyte first_opcodes[50];  // Just the raw opcodes, not counts
 static uint32_t opcode_track_count;
 
+/**
+ * Z-machine state snapshot for persistence between kernel invocations
+ * This allows us to run interpret() in batches of 100 instructions
+ */
+struct ZMachineState {
+    uint32_t pc_offset;          // PC as offset from memory base (not pointer!)
+    uint32_t sp;                 // Stack pointer
+    zword stack[1024];           // Stack contents
+    uint32_t frame_sp;           // Call frame stack pointer
+    Frame frames[64];            // Call frames
+    bool finished;               // Execution finished flag
+    uint32_t out_pos;            // Output buffer position
+    uint32_t instruction_count;  // Total instructions executed across all batches
+};
+
 // Debug counters
 static uint32_t print_obj_calls = 0;
 
@@ -1013,9 +1028,79 @@ static void output_opcode_stats() {
 }
 
 /**
- * Kernel main - ULTRA SIMPLE VERSION!
- * Game data already in L1 (host writes it), output stays in L1 (host reads it)
- * NO DRAM, NO NoC, NO addresses - just process!
+ * Save Z-machine state to buffer for persistence between batches
+ */
+static void save_state(ZMachineState* state) {
+    state->pc_offset = (uint32_t)(pc - memory);  // Convert pointer to offset
+    state->sp = sp;
+    state->frame_sp = frame_sp;
+    state->finished = finished;
+    state->out_pos = out_pos;
+
+    // Copy stack
+    for (uint32_t i = 0; i < 1024; i++) {
+        state->stack[i] = stack[i];
+    }
+
+    // Copy call frames
+    for (uint32_t i = 0; i < 64; i++) {
+        state->frames[i] = frames[i];
+        // Convert ret_pc pointer to offset
+        if (state->frames[i].ret_pc != nullptr) {
+            state->frames[i].ret_pc = (zbyte*)(state->frames[i].ret_pc - memory);
+        }
+    }
+}
+
+/**
+ * Load Z-machine state from buffer to resume execution
+ */
+static void load_state(const ZMachineState* state) {
+    pc = memory + state->pc_offset;  // Convert offset back to pointer
+    sp = state->sp;
+    frame_sp = state->frame_sp;
+    finished = state->finished;
+    out_pos = state->out_pos;
+
+    // Copy stack
+    for (uint32_t i = 0; i < 1024; i++) {
+        stack[i] = state->stack[i];
+    }
+
+    // Copy call frames
+    for (uint32_t i = 0; i < 64; i++) {
+        frames[i] = state->frames[i];
+        // Convert ret_pc offset back to pointer
+        if (frames[i].ret_pc != nullptr) {
+            frames[i].ret_pc = memory + (uint32_t)frames[i].ret_pc;
+        }
+    }
+}
+
+/**
+ * Kernel main - BATCHED EXECUTION with state persistence
+ * Runs 100 instructions, saves state to DRAM for next batch
+ *
+ * ARCHITECTURE FOR STREAMING EXECUTION:
+ * =====================================
+ * Problem: Running interpret(100) works, interpret(150+) locks up device
+ * Solution: Run multiple kernel invocations, each doing 100 instructions
+ *
+ * Required additions (TODO next session):
+ * 1. Add STATE_DRAM_ADDR define (optional, for batched mode)
+ * 2. At start: if (STATE_DRAM_ADDR exists && state.instruction_count > 0)
+ *       load_state() to resume from previous batch
+ * 3. Run interpret(100)
+ * 4. save_state() with updated instruction_count
+ * 5. Write state back to STATE_DRAM via NoC
+ *
+ * Host responsibilities:
+ * - Create 3rd DRAM buffer for ZMachineState (~10KB)
+ * - Loop: run kernel, check if state.finished, repeat until done
+ * - Accumulate output from each batch
+ *
+ * This architecture works WITH the hardware (short kernels) instead of
+ * against it (long loops). Proven reliable at interpret(100) per batch.
  */
 void kernel_main() {
     // Step 1: Use NoC to copy game data from DRAM to L1
