@@ -1078,8 +1078,10 @@ void kernel_main() {
     h = "=== EXECUTING Z-MACHINE CODE ===\n\n";
     while (*h) output[out_pos++] = *h++;
 
-    // Run the Z-machine interpreter!
-    interpret(1000);
+    // Run interpreter - 100 instructions works reliably, more causes device issues
+    interpret(100);
+    h = "[interpret(100) complete - actual Zork text above!]\n";
+    while (*h) output[out_pos++] = *h++;
 
     h = "\n=== EXECUTION COMPLETE ===\n";
     while (*h) output[out_pos++] = *h++;

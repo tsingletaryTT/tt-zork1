@@ -21,12 +21,9 @@ int main() {
     std::cout << "=== TEST: Minimal RISC-V Kernel Execution ===" << std::endl;
 
     try {
-        // Device init
-        std::cout << "[1/7] Initializing device..." << std::flush;
-        const auto system_mesh_shape = distributed::SystemMesh::instance().shape();
-        auto parent_mesh = distributed::MeshDevice::create(
-            distributed::MeshDeviceConfig(system_mesh_shape));
-        auto mesh_device = parent_mesh->create_submesh(distributed::MeshShape(1, 1));
+        // Device init - use device 0 only
+        std::cout << "[1/7] Initializing device 0..." << std::flush;
+        auto mesh_device = distributed::MeshDevice::create_unit_mesh(0);
         distributed::MeshCommandQueue& cq = mesh_device->mesh_command_queue();
         std::cout << " done" << std::endl;
 
@@ -48,8 +45,13 @@ int main() {
         Program program = CreateProgram();
         std::cout << " done" << std::endl;
 
-        // Create simplest possible kernel - no args at all
+        // Create simplest possible kernel with address define
         std::cout << "[4/7] Creating ultra-minimal kernel..." << std::flush;
+
+        std::map<std::string, std::string> defines;
+        char addr_buf[32];
+        snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)output_buffer->address());
+        defines["OUTPUT_DRAM_ADDR"] = addr_buf;
 
         KernelHandle kernel_id = CreateKernel(
             program,
@@ -57,8 +59,8 @@ int main() {
             TEST_CORE,
             DataMovementConfig{
                 .processor = DataMovementProcessor::RISCV_0,
-                .noc = NOC::RISCV_0_default
-                // NO compile_args, NO runtime_args
+                .noc = NOC::RISCV_0_default,
+                .defines = defines
             }
         );
         std::cout << " done" << std::endl;
@@ -92,7 +94,6 @@ int main() {
 
         // Cleanup
         mesh_device->close();
-        parent_mesh->close();
         return 0;
 
     } catch (const std::exception& e) {
