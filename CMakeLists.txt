@@ -39,4 +39,9 @@ add_executable(test_hello_kernel)
 target_sources(test_hello_kernel PRIVATE test_hello_kernel.cpp)
 target_link_libraries(test_hello_kernel PUBLIC TT::Metalium)
 
+# Test simple state persistence
+add_executable(test_state_simple)
+target_sources(test_state_simple PRIVATE test_state_simple.cpp)
+target_link_libraries(test_state_simple PUBLIC TT::Metalium)
+
 # TODO: Add kernel compilation target later
