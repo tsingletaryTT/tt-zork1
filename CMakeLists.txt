@@ -45,3 +45,14 @@ target_sources(test_state_simple PRIVATE test_state_simple.cpp)
 target_link_libraries(test_state_simple PUBLIC TT::Metalium)
 
 # TODO: Add kernel compilation target later
+add_executable(zork_streaming)
+target_sources(zork_streaming PRIVATE ../zork_on_blackhole_streaming.cpp)
+target_link_libraries(zork_streaming PUBLIC TT::Metalium)
+
+add_executable(test_multiple_runs)
+target_sources(test_multiple_runs PRIVATE ../test_multiple_runs.cpp)
+target_link_libraries(test_multiple_runs PUBLIC TT::Metalium)
+
+add_executable(test_cached_execution)
+target_sources(test_cached_execution PRIVATE ../test_cached_execution.cpp)
+target_link_libraries(test_cached_execution PUBLIC TT::Metalium)

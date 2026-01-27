@@ -108,16 +108,6 @@ int main(int argc, char* argv[]) {
 
         std::cout << "[Host] Using device 0 in 1x1 mesh" << std::endl;
 
-        // ═══════════════════════════════════════════════════════
-        // ENABLE PROGRAM CACHE - Critical for repeated execution!
-        // Without this, second batch will fail with device errors
-        // ═══════════════════════════════════════════════════════
-        auto devices = mesh_device->get_devices();
-        for (auto device : devices) {
-            device->enable_program_cache();
-        }
-        std::cout << "[Host] Program cache enabled (allows multiple batches without reset)" << std::endl;
-
         distributed::MeshCommandQueue& cq = mesh_device->mesh_command_queue();
         distributed::MeshWorkload workload;
         distributed::MeshCoordinateRange device_range =
@@ -187,41 +177,52 @@ int main(int argc, char* argv[]) {
         std::cout << "       - State buffer at DRAM address: 0x" << std::hex << state_buffer->address() << std::dec << std::endl;
         std::cout << std::endl;
 
-        // Run batches
-        std::string accumulated_output;
+        // ═══════════════════════════════════════════════════════
+        // STREAMING PATTERN: Create program/kernel ONCE
+        // Then execute multiple times like model inference
+        // ═══════════════════════════════════════════════════════
+
+        std::cout << "[Host] Creating Z-machine kernel (compiled once, runs " << num_batches << " times)..." << std::endl;
+
+        // Create program and kernel ONCE (outside loop)
+        Program program = CreateProgram();
+
+        // Pass buffer addresses as compile-time defines
+        std::map<std::string, std::string> kernel_defines;
+        char addr_buf[32];
+        snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)game_buffer->address());
+        kernel_defines["GAME_DRAM_ADDR"] = addr_buf;
+        snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)output_buffer->address());
+        kernel_defines["OUTPUT_DRAM_ADDR"] = addr_buf;
+        snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)state_buffer->address());
+        kernel_defines["STATE_DRAM_ADDR"] = addr_buf;
+
+        KernelHandle kernel_id = CreateKernel(
+            program,
+            "/home/ttuser/code/tt-zork1/kernels/zork_interpreter.cpp",
+            ZORK_CORE,
+            DataMovementConfig{
+                .processor = DataMovementProcessor::RISCV_0,
+                .noc = NOC::RISCV_0_default,
+                .defines = kernel_defines
+            }
+        );
+
+        std::cout << "[Host] Kernel ready! Now streaming " << num_batches << " batches..." << std::endl;
         std::cout << std::endl;
+
+        // Run batches - just execute, don't recreate!
+        std::string accumulated_output;
+        distributed::MeshCoordinateRange device_range(mesh_device->shape());
 
         for (int batch = 0; batch < num_batches; batch++) {
             std::cout << "--- Batch " << (batch + 1) << "/" << num_batches << " ---" << std::endl;
 
-            // Create program and kernel
-            Program program = CreateProgram();
-
-            // Pass buffer addresses as compile-time defines!
-            std::map<std::string, std::string> kernel_defines;
-            char addr_buf[32];
-            snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)game_buffer->address());
-            kernel_defines["GAME_DRAM_ADDR"] = addr_buf;
-            snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)output_buffer->address());
-            kernel_defines["OUTPUT_DRAM_ADDR"] = addr_buf;
-            snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)state_buffer->address());
-            kernel_defines["STATE_DRAM_ADDR"] = addr_buf;  // Enable state persistence!
-
-            KernelHandle kernel_id = CreateKernel(
-                program,
-                "/home/ttuser/code/tt-zork1/kernels/zork_interpreter.cpp",
-                ZORK_CORE,
-                DataMovementConfig{
-                    .processor = DataMovementProcessor::RISCV_0,
-                    .noc = NOC::RISCV_0_default,
-                    .defines = kernel_defines
-                }
-            );
-
-            // Execute kernel
+            // Create lightweight workload wrapper (doesn't recompile kernel!)
             distributed::MeshWorkload workload;
-            distributed::MeshCoordinateRange device_range(mesh_device->shape());
-            workload.add_program(device_range, std::move(program));
+            workload.add_program(device_range, program);  // Copy program reference, don't move!
+
+            // Execute kernel (kernel stays resident on device)
             distributed::EnqueueMeshWorkload(cq, workload, /*blocking=*/false);
             distributed::Finish(cq);
 
