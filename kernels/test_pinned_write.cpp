@@ -8,7 +8,7 @@
  * The NoC address points to pinned host memory, not DRAM!
  *
  * Compile-time defines expected:
- * - OUTPUT_NOC_ADDR: NoC address of pinned host memory
+ * - OUTPUT_NOC_ADDR: 64-bit NoC address of pinned host memory
  * - PCIE_XY_ENC: PCIe XY encoding for the address
  */
 
@@ -20,7 +20,7 @@ constexpr uint32_t L1_BUFFER_ADDR = 0x20000;
 
 void kernel_main() {
     // Message to write to host memory
-    const char message[] = "Hello from Blackhole RISC-V core! PinnedMemory works!";
+    const char message[] = "SUCCESS! RISC-V wrote directly to host RAM via PinnedMemory!";
     const uint32_t message_len = sizeof(message);  // Includes null terminator
 
     // Copy message to L1 buffer
@@ -31,12 +31,14 @@ void kernel_main() {
 
 #ifdef OUTPUT_NOC_ADDR
     // Write directly to host memory via NoC!
-    // The OUTPUT_NOC_ADDR is provided by the host and points to pinned host memory
+    // PinnedMemory provides a 64-bit address that routes through PCIe to host
+    uint64_t dst_noc_addr = OUTPUT_NOC_ADDR;
+
+    // Try standard async write first - the address should be properly formatted
     noc_async_write(
-        L1_BUFFER_ADDR,          // Source: L1 buffer
-        OUTPUT_NOC_ADDR,         // Destination: Host pinned memory!
-        message_len,             // Size
-        0                        // NOC 0
+        L1_BUFFER_ADDR,     // Source: L1 buffer
+        dst_noc_addr,       // Destination: Host pinned memory!
+        message_len         // Size
     );
 
     // Wait for write to complete
