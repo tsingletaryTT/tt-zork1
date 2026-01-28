@@ -71,3 +71,8 @@ target_link_libraries(test_pinned_hostside PUBLIC TT::Metalium)
 add_executable(test_device_persistence)
 target_sources(test_device_persistence PRIVATE ../test_device_persistence.cpp)
 target_link_libraries(test_device_persistence PUBLIC TT::Metalium)
+
+# Test Optimized Z-Machine Kernel: 30% smaller, incremental testing
+add_executable(test_zork_optimized)
+target_sources(test_zork_optimized PRIVATE ../test_zork_optimized.cpp)
+target_link_libraries(test_zork_optimized PUBLIC TT::Metalium)
