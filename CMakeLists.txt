@@ -66,3 +66,8 @@ target_link_libraries(test_pinned_memory PUBLIC TT::Metalium)
 add_executable(test_pinned_hostside)
 target_sources(test_pinned_hostside PRIVATE ../test_pinned_hostside.cpp)
 target_link_libraries(test_pinned_hostside PUBLIC TT::Metalium)
+
+# Test Device Persistence: Multiple kernel executions
+add_executable(test_device_persistence)
+target_sources(test_device_persistence PRIVATE ../test_device_persistence.cpp)
+target_link_libraries(test_device_persistence PUBLIC TT::Metalium)
