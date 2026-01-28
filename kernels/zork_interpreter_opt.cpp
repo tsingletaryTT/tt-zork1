@@ -1184,7 +1184,7 @@ void kernel_main() {
     h = "=== EXECUTING Z-MACHINE CODE ===\n\n";
     while (*h) output[out_pos++] = *h++;
 
-    // Run interpreter - 100 instructions works reliably, more causes device issues
+    // Run interpreter - 100 instructions per batch (proven stable with 5 batches)
     interpret(100);
     h = "[interpret(100) complete - actual Zork text above!]\n";
     while (*h) output[out_pos++] = *h++;
