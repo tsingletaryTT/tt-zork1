@@ -86,7 +86,7 @@ This document tracks our progress implementing all Z-machine V3 opcodes for the 
 | 0x01 | STOREW (store word) | ✅ DONE | High | |
 | 0x02 | STOREB (store byte) | ❌ TODO | High | Memory write |
 | 0x03 | PUT_PROP (put property) | ✅ DONE | High | |
-| 0x04 | READ (read input) | ❌ TODO | **CRITICAL** | **Needed for gameplay!** |
+| 0x04 | READ (read input) | ✅ DONE | **CRITICAL** | **Enables interactive gameplay!** |
 | 0x05 | PRINT_CHAR (print character) | ❌ TODO | High | Character output |
 | 0x06 | PRINT_NUM (print number) | ❌ TODO | **CRITICAL** | **Fixes "ixn" bug!** |
 | 0x07 | RANDOM (random number) | ✅ DONE | Medium | Needs better impl |

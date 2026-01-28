@@ -20,6 +20,9 @@
 #ifndef OUTPUT_DRAM_ADDR
 #error "OUTPUT_DRAM_ADDR must be defined"
 #endif
+#ifndef INPUT_DRAM_ADDR
+#error "INPUT_DRAM_ADDR must be defined"
+#endif
 
 typedef uint8_t zbyte;
 typedef uint16_t zword;
@@ -33,8 +36,10 @@ static zword zargs[8];          // Current instruction arguments
 static uint32_t zargc;          // Number of arguments
 static char* output;            // Output buffer
 static uint32_t out_pos;
+static char* input;             // Input buffer (from host)
 static zword abbrev_table;
 static zword global_vars_addr;  // Address of global variables table
+static zword dictionary_addr;   // Address of dictionary table
 
 // Call frame for routine calls
 struct Frame {
@@ -853,6 +858,110 @@ static void op_print_num() {
 }
 
 /**
+ * READ opcode - Read player input from DRAM buffer
+ *
+ * In Z-machine: READ text_buffer parse_buffer
+ *
+ * This is the CRITICAL opcode that enables interactive gameplay!
+ * Instead of waiting for keyboard input, we read from a DRAM buffer
+ * that the host has pre-loaded with the user's command.
+ *
+ * Arguments:
+ *   zargs[0] = text_buffer address (where to store the text the user typed)
+ *   zargs[1] = parse_buffer address (where to store parsed word tokens)
+ *
+ * Text buffer format:
+ *   byte 0: max length (how many chars the buffer can hold)
+ *   byte 1: actual length (how many chars were typed)
+ *   bytes 2+: the actual text characters
+ *
+ * Parse buffer format:
+ *   byte 0: max number of words that can be parsed
+ *   byte 1: actual number of words parsed
+ *   bytes 2+: word entries (each 4 bytes: dict_addr(2), text_len(1), text_pos(1))
+ */
+static void op_read() {
+    zword text_buffer_addr = zargs[0];
+    zword parse_buffer_addr = zargs[1];
+
+    // Read max length from text buffer
+    zbyte max_len = read_byte(text_buffer_addr);
+    if (max_len == 0) max_len = 80;  // Default if not set
+
+    // Copy input string from L1 input buffer to text buffer in Z-machine memory
+    // Input format: null-terminated string
+    zbyte actual_len = 0;
+    for (uint32_t i = 0; i < max_len && i < 200 && input[i] != '\0'; i++) {
+        // Convert to lowercase for Z-machine (standard behavior)
+        char ch = input[i];
+        if (ch >= 'A' && ch <= 'Z') {
+            ch = ch - 'A' + 'a';
+        }
+        memory[text_buffer_addr + 2 + i] = (zbyte)ch;
+        actual_len++;
+    }
+
+    // Store actual length in text buffer
+    memory[text_buffer_addr + 1] = actual_len;
+
+    // Parse the input into words if parse buffer provided
+    if (parse_buffer_addr != 0) {
+        // Read max words from parse buffer
+        zbyte max_words = read_byte(parse_buffer_addr);
+        if (max_words == 0) max_words = 10;  // Default
+
+        zbyte word_count = 0;
+        uint32_t pos = 0;
+
+        // Simple tokenization: split by spaces
+        while (pos < actual_len && word_count < max_words) {
+            // Skip spaces
+            while (pos < actual_len && memory[text_buffer_addr + 2 + pos] == ' ') {
+                pos++;
+            }
+            if (pos >= actual_len) break;
+
+            // Found start of word
+            uint32_t word_start = pos;
+            uint32_t word_len = 0;
+
+            // Read until space or end
+            while (pos < actual_len && memory[text_buffer_addr + 2 + pos] != ' ') {
+                word_len++;
+                pos++;
+            }
+
+            // Store word entry in parse buffer
+            // Format: dict_addr(2 bytes), text_len(1), text_pos(1)
+            uint32_t entry_addr = parse_buffer_addr + 2 + (word_count * 4);
+
+            // For now, set dict_addr to 0 (word not in dictionary)
+            // A full implementation would look up each word in the dictionary table
+            write_word(entry_addr, 0);           // dict_addr = 0 (not found)
+            memory[entry_addr + 2] = word_len;   // length of word
+            memory[entry_addr + 3] = word_start + 2;  // position in text buffer
+
+            word_count++;
+        }
+
+        // Store actual word count
+        memory[parse_buffer_addr + 1] = word_count;
+    }
+
+    // Echo the input to output for debugging
+    if (out_pos < 14900) {
+        const char* prompt = "\n> ";
+        while (*prompt && out_pos < 14900) {
+            output[out_pos++] = *prompt++;
+        }
+        for (uint32_t i = 0; i < actual_len && out_pos < 15000; i++) {
+            output[out_pos++] = memory[text_buffer_addr + 2 + i];
+        }
+        if (out_pos < 15000) output[out_pos++] = '\n';
+    }
+}
+
+/**
  * Main interpreter loop - based on Frotz's interpret()
  *
  * This is like Ruby's "eval" - it reads bytecode and executes it!
@@ -973,6 +1082,9 @@ static void interpret(uint32_t max_instructions) {
                 case 0x00:  // CALL_1S - call routine (1 arg min)
                 case 0x20:  // CALL_VS2 - call routine (variable args, extended)
                     op_call();
+                    break;
+                case 0x04:  // READ - read player input ⭐ CRITICAL FOR GAMEPLAY!
+                    op_read();
                     break;
                 case 0x05:  // PRINT_CHAR - print character
                     op_print_char();
@@ -1103,10 +1215,12 @@ static void load_state(const ZMachineState* state) {
  * against it (long loops). Proven reliable at interpret(10) per batch.
  */
 void kernel_main() {
-    // Step 1: Use NoC to copy game data from DRAM to L1
+    // Step 1: Use NoC to copy game data and input from DRAM to L1
     constexpr uint32_t L1_GAME = 0x10000;    // 64KB into L1 for game
     constexpr uint32_t L1_OUT = 0x30000;     // 192KB into L1 for output
-    constexpr uint32_t GAME_SIZE = 87040;  // Actual game size + alignment
+    constexpr uint32_t L1_INPUT = 0x34000;   // 208KB into L1 for input (1KB buffer)
+    constexpr uint32_t GAME_SIZE = 87040;    // Actual game size + alignment
+    constexpr uint32_t INPUT_SIZE = 1024;    // Input buffer size
 
     // Read game data in 4KB chunks to avoid NoC transfer size limits
     constexpr uint32_t CHUNK_SIZE = 4096;
@@ -1119,8 +1233,14 @@ void kernel_main() {
         offset += chunk;
     }
 
+    // Read input buffer from DRAM
+    uint64_t input_src = get_noc_addr(0, 0, INPUT_DRAM_ADDR);
+    noc_async_read(input_src, L1_INPUT, INPUT_SIZE);
+    noc_async_read_barrier();
+
     memory = (zbyte*)L1_GAME;
     output = (char*)L1_OUT;
+    input = (char*)L1_INPUT;
 
     // Initialize opcode tracking
     opcode_track_count = 0;
@@ -1128,6 +1248,7 @@ void kernel_main() {
     // Initialize global Z-machine constants
     abbrev_table = read_word(0x18);      // Abbreviations table
     global_vars_addr = read_word(0x0C);  // Global variables table
+    dictionary_addr = read_word(0x08);   // Dictionary table
 
 #ifdef STATE_DRAM_ADDR
     // BATCHED EXECUTION MODE: Load previous state if exists

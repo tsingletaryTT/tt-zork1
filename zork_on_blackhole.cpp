@@ -49,6 +49,9 @@ constexpr CoreCoord ZORK_CORE = {0, 0};
 // State persistence file
 constexpr const char* STATE_FILE = "/tmp/zork_state.bin";
 
+// Input command file
+constexpr const char* INPUT_FILE = "/tmp/zork_input.txt";
+
 /**
  * Load game file from filesystem into memory buffer
  */
@@ -138,6 +141,11 @@ int main(int argc, char* argv[]) {
             .buffer_type = BufferType::DRAM
         };
 
+        distributed::DeviceLocalBufferConfig input_dram_config{
+            .page_size = MAX_INPUT_SIZE,  // 1KB page = whole buffer in one page
+            .buffer_type = BufferType::DRAM
+        };
+
         distributed::DeviceLocalBufferConfig state_dram_config{
             .page_size = MAX_STATE_SIZE,  // 16KB page = whole buffer in one page
             .buffer_type = BufferType::DRAM
@@ -156,6 +164,12 @@ int main(int argc, char* argv[]) {
             mesh_device.get()
         );
 
+        auto input_buffer = distributed::MeshBuffer::create(
+            distributed::ReplicatedBufferConfig{.size = MAX_INPUT_SIZE},
+            input_dram_config,
+            mesh_device.get()
+        );
+
         auto state_buffer = distributed::MeshBuffer::create(
             distributed::ReplicatedBufferConfig{.size = MAX_STATE_SIZE},
             state_dram_config,
@@ -165,6 +179,20 @@ int main(int argc, char* argv[]) {
         // Upload game data to DRAM
         std::cout << "[Host] Uploading game data to DRAM..." << std::endl;
         EnqueueWriteMeshBuffer(cq, game_buffer, game_data, /*blocking=*/true);
+
+        // Load input from file if exists, otherwise use empty
+        std::vector<uint8_t> input_data(MAX_INPUT_SIZE, 0);
+        std::ifstream input_file(INPUT_FILE);
+        if (input_file) {
+            std::string input_line;
+            std::getline(input_file, input_line);
+            input_file.close();
+            std::strncpy(reinterpret_cast<char*>(input_data.data()), input_line.c_str(), MAX_INPUT_SIZE - 1);
+            std::cout << "[Host] Loaded input command: \"" << input_line << "\"" << std::endl;
+        } else {
+            std::cout << "[Host] No input file found, using empty input" << std::endl;
+        }
+        EnqueueWriteMeshBuffer(cq, input_buffer, input_data, /*blocking=*/true);
 
         // Load or initialize state buffer
         std::vector<uint8_t> state_data(MAX_STATE_SIZE, 0);
@@ -184,6 +212,7 @@ int main(int argc, char* argv[]) {
         std::cout << "       - Game data: " << game_data.size() << " bytes in DRAM" << std::endl;
         std::cout << "       - Game buffer at DRAM address: 0x" << std::hex << game_buffer->address() << std::dec << std::endl;
         std::cout << "       - Output buffer at DRAM address: 0x" << std::hex << output_buffer->address() << std::dec << std::endl;
+        std::cout << "       - Input buffer at DRAM address: 0x" << std::hex << input_buffer->address() << std::dec << std::endl;
         std::cout << "       - State buffer at DRAM address: 0x" << std::hex << state_buffer->address() << std::dec << std::endl;
         std::cout << std::endl;
 
@@ -204,12 +233,14 @@ int main(int argc, char* argv[]) {
             kernel_defines["GAME_DRAM_ADDR"] = addr_buf;
             snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)output_buffer->address());
             kernel_defines["OUTPUT_DRAM_ADDR"] = addr_buf;
+            snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)input_buffer->address());
+            kernel_defines["INPUT_DRAM_ADDR"] = addr_buf;
             snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)state_buffer->address());
             kernel_defines["STATE_DRAM_ADDR"] = addr_buf;  // Enable state persistence!
 
             KernelHandle kernel_id = CreateKernel(
                 program,
-                "/home/ttuser/code/tt-zork1/kernels/zork_interpreter.cpp",
+                "/home/ttuser/code/tt-zork1/kernels/zork_interpreter_opt.cpp",
                 ZORK_CORE,
                 DataMovementConfig{
                     .processor = DataMovementProcessor::RISCV_0,
