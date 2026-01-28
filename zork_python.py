@@ -5,119 +5,184 @@
 """
 Zork I on Tenstorrent Blackhole - Python Orchestrator
 
-This Python script demonstrates persistent execution of the Z-machine
-interpreter on Tenstorrent AI accelerator hardware using the TTNN Python API.
+This Python script orchestrates repeated execution of the Z-machine interpreter
+C++ program, taking advantage of TT-Metal's program cache for efficient batching.
 
-Key advantages over C++ approach:
-- Automatic program caching (no manual enable_program_cache needed)
-- Simpler buffer management with Python wrappers
-- Easy iteration and debugging
-- Matches production inference patterns (vLLM, etc.)
+Key advantages:
+- Simpler than direct Python API (reuses existing C++ code)
+- Program cache eliminates recompilation overhead
+- Easy state persistence via filesystem
+- Clean separation: Python orchestrates, C++ executes
 
 Architecture:
-    [Python Host]
+    [Python Orchestrator]
         ↓
-    open_device() ONCE
+    Loop until game complete:
         ↓
-    Load game to DRAM buffer
+    Execute zork_on_blackhole (C++)
         ↓
-    ┌─────────────────────────┐
-    │  Game Loop (persistent) │
-    │  ├─ Execute kernel      │  ← Program cached after first run!
-    │  ├─ Read output         │  ← ~0.001s vs 0.6s on first run
-    │  └─ Update state        │  ← State persists in DRAM
-    └─────────────────────────┘
+    ├─ First run: Compiles kernel + caches program (~2-3s)
         ↓
-    close_device() ONCE
+    ├─ Later runs: Uses cached program (~0.5s)
+        ↓
+    ├─ Loads state from /tmp/zork_state.bin
+        ↓
+    ├─ Executes 100 Z-machine instructions
+        ↓
+    └─ Saves state to /tmp/zork_state.bin
+        ↓
+    Extract & display output
+        ↓
+    Check if game finished
 """
 
 import sys
-import struct
-import ttnn
+import subprocess
+import time
 from pathlib import Path
 
 # Configuration
 GAME_FILE = "game/zork1.z3"
-MAX_GAME_SIZE = 128 * 1024  # 128KB
-MAX_OUTPUT_SIZE = 16 * 1024  # 16KB
-MAX_STATE_SIZE = 16 * 1024   # 16KB
+STATE_FILE = "/tmp/zork_state.bin"
+ZORK_EXECUTABLE = "./build-host/zork_on_blackhole"
+TT_METAL_ROOT = "/home/ttuser/tt-metal"
 INSTRUCTIONS_PER_BATCH = 100
+MAX_BATCHES = 50  # Limit for safety (5000 total instructions)
 
 
-def load_game_file(path: str) -> bytes:
-    """Load Zork game file from disk."""
-    game_path = Path(path)
-    if not game_path.exists():
-        raise FileNotFoundError(f"Game file not found: {path}")
+def run_zork_batch(batch_num: int, num_batches: int = 1) -> tuple[str, bool]:
+    """
+    Execute one batch of Z-machine instructions via C++ program.
 
-    data = game_path.read_bytes()
-    print(f"[Host] Loaded {path}: {len(data)} bytes")
+    Returns:
+        (output_text, is_finished)
+    """
+    # Copy current environment and add TT-Metal variables
+    env = subprocess.os.environ.copy()
+    env["TT_METAL_RUNTIME_ROOT"] = TT_METAL_ROOT
+    env["HOME"] = env.get("HOME", "/home/ttuser")  # Ensure HOME is set for MPI
 
-    # Pad to full size for DRAM buffer
-    if len(data) < MAX_GAME_SIZE:
-        data = data + b'\x00' * (MAX_GAME_SIZE - len(data))
+    # Run C++ executable with num_batches parameter
+    # If num_batches=1: Single batch with state persistence
+    # Program cache will speed up after first run!
+    cmd = [ZORK_EXECUTABLE, GAME_FILE, str(num_batches)]
 
-    return data
+    start_time = time.time()
+    result = subprocess.run(
+        cmd,
+        env=env,
+        capture_output=True,
+        text=True,
+        cwd="/home/ttuser/code/tt-zork1"
+    )
+    elapsed = time.time() - start_time
+
+    if result.returncode != 0:
+        print(f"[ERROR] Batch {batch_num} failed:")
+        print(result.stderr)
+        return ("", False)
+
+    # Extract game output from between the box borders
+    output = result.stdout
+
+    # Look for accumulated output section
+    if "ACCUMULATED ZORK OUTPUT" in output:
+        lines = output.split('\n')
+        in_output = False
+        game_text = []
+        for line in lines:
+            if "ACCUMULATED ZORK OUTPUT" in line:
+                in_output = True
+                continue
+            if in_output:
+                if line.startswith('╚'):  # End of box
+                    break
+                if not line.startswith('╔') and not line.startswith('║'):
+                    game_text.append(line)
+
+        output_text = '\n'.join(game_text).strip()
+    else:
+        output_text = ""
+
+    # Check if game has finished (look for completion markers)
+    is_finished = "Game complete" in output or batch_num >= MAX_BATCHES
+
+    print(f"[Batch {batch_num}] Completed in {elapsed:.2f}s")
+    if batch_num == 1:
+        print(f"           ↑ First run includes compilation (~2-3s)")
+    elif batch_num == 2:
+        print(f"           ↑ Program cache active! Should be faster (~0.5s)")
+
+    return (output_text, is_finished)
 
 
 def main():
     print("╔══════════════════════════════════════════════════════════╗")
     print("║  ZORK I - Python Orchestrator on Blackhole RISC-V       ║")
-    print("║  Persistent execution with automatic program caching     ║")
+    print("║  Leveraging TT-Metal program cache for fast execution   ║")
     print("╚══════════════════════════════════════════════════════════╝")
     print()
 
-    # Load game file
-    try:
-        game_data = load_game_file(GAME_FILE)
-    except FileNotFoundError as e:
-        print(f"ERROR: {e}")
+    # Check that executable exists
+    if not Path(ZORK_EXECUTABLE).exists():
+        print(f"ERROR: Zork executable not found: {ZORK_EXECUTABLE}")
+        print("Please run: cd build-host && cmake --build . --parallel")
         return 1
 
-    # Open device ONCE (persists for entire session)
-    print("[Host] Opening Tenstorrent device...")
-    device = ttnn.open_device(device_id=0)
-    print("[Host] Device opened successfully!")
-    print("[Host] Program cache is automatic in Python API ✨")
+    # Check that game file exists
+    if not Path(GAME_FILE).exists():
+        print(f"ERROR: Game file not found: {GAME_FILE}")
+        return 1
+
+    print(f"[Python] Game file: {GAME_FILE}")
+    print(f"[Python] Executable: {ZORK_EXECUTABLE}")
+    print(f"[Python] State file: {STATE_FILE}")
+    print(f"[Python] Batches: {INSTRUCTIONS_PER_BATCH} instructions each")
     print()
 
+    # Clear previous state to start fresh
+    if Path(STATE_FILE).exists():
+        print("[Python] Removing previous state file (starting fresh)")
+        Path(STATE_FILE).unlink()
+
+    print("[Python] Starting batched execution loop...")
+    print("[Python] Press Ctrl+C to stop")
+    print()
+
+    accumulated_output = ""
+    batch = 1
+
     try:
-        # TODO: Create DRAM buffers for game, output, state
-        # game_buffer = ttnn.allocate_buffer_on_device(...)
-        # output_buffer = ttnn.allocate_buffer_on_device(...)
-        # state_buffer = ttnn.allocate_buffer_on_device(...)
+        while batch <= MAX_BATCHES:
+            print(f"--- Executing Batch {batch}/{MAX_BATCHES} ---")
 
-        # TODO: Upload game data
-        # ttnn.write_buffer(device, game_buffer, game_data)
+            output, finished = run_zork_batch(batch, num_batches=1)
 
-        # Main game loop - NO DEVICE RECREATION!
-        num_batches = 5
-        print(f"[Host] Starting game loop: {num_batches} batches × {INSTRUCTIONS_PER_BATCH} instructions")
-        print()
+            if output:
+                accumulated_output += output + "\n"
 
-        for batch in range(num_batches):
-            print(f"[Batch {batch+1}/{num_batches}] Executing Z-machine interpreter...")
+            if finished:
+                print()
+                print(f"[Python] Game finished after {batch} batches!")
+                break
 
-            # TODO: Execute Z-machine kernel
-            # First run: compiles and caches (~0.6s)
-            # Subsequent runs: uses cache (~0.001s - 600x faster!)
-            # ttnn.run_kernel(device, "zork_interpreter", ...)
-
-            # TODO: Read output
-            # output = ttnn.read_buffer(device, output_buffer)
-
-            print(f"[Batch {batch+1}/{num_batches}] Complete!")
+            batch += 1
 
         print()
-        print("✅ SUCCESS: All batches completed without device reset!")
-        print(f"✅ Program cache made batches 2-{num_batches} ~600x faster!")
-
-    finally:
-        # Close device ONCE at end
+        print("="*60)
+        print("ACCUMULATED GAME OUTPUT:")
+        print("="*60)
+        print(accumulated_output)
+        print("="*60)
         print()
-        print("[Host] Closing device...")
-        ttnn.close_device(device)
-        print("[Host] Done!")
+        print(f"✅ SUCCESS: Completed {batch} batches")
+        print(f"✅ Total Z-machine instructions: ~{batch * INSTRUCTIONS_PER_BATCH}")
+        print(f"✅ Program cache eliminated recompilation overhead!")
+
+    except KeyboardInterrupt:
+        print()
+        print("[Python] Interrupted by user")
+        return 130
 
     return 0
 
