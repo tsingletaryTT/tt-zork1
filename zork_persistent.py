@@ -26,8 +26,13 @@ Performance:
 """
 
 import sys
+import os
 import time
 from pathlib import Path
+
+# Set library path for TT-Metal shared libraries
+os.environ['LD_LIBRARY_PATH'] = '/home/ttuser/tt-metal/build_Release/lib:' + os.environ.get('LD_LIBRARY_PATH', '')
+os.environ['TT_METAL_RUNTIME_ROOT'] = '/home/ttuser/tt-metal'
 
 # Add python_bindings to path
 sys.path.insert(0, str(Path(__file__).parent / "python_bindings"))
