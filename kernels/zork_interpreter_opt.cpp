@@ -1185,8 +1185,8 @@ void kernel_main() {
     while (*h) output[out_pos++] = *h++;
 
     // Run interpreter - 100 instructions works reliably, more causes device issues
-    interpret(10);
-    h = "[interpret(10) complete - actual Zork text above!]\n";
+    interpret(100);
+    h = "[interpret(100) complete - actual Zork text above!]\n";
     while (*h) output[out_pos++] = *h++;
 
     h = "\n=== EXECUTION COMPLETE ===\n";
