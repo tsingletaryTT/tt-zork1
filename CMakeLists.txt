@@ -57,7 +57,12 @@ add_executable(test_cached_execution)
 target_sources(test_cached_execution PRIVATE ../test_cached_execution.cpp)
 target_link_libraries(test_cached_execution PUBLIC TT::Metalium)
 
-# Test PinnedMemory: RISC-V writes directly to host memory
+# Test PinnedMemory: RISC-V writes directly to host memory (kernel→host approach)
 add_executable(test_pinned_memory)
 target_sources(test_pinned_memory PRIVATE ../test_pinned_memory.cpp)
 target_link_libraries(test_pinned_memory PUBLIC TT::Metalium)
+
+# Test PinnedMemory: Host-side approach (proven pattern)
+add_executable(test_pinned_hostside)
+target_sources(test_pinned_hostside PRIVATE ../test_pinned_hostside.cpp)
+target_link_libraries(test_pinned_hostside PUBLIC TT::Metalium)
