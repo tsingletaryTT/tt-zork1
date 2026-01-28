@@ -140,6 +140,7 @@ Design philosophy: Let the LLM do literal translation, let the game handle disam
 ## Documentation
 
 ### Main Documentation
+- **[TENSTORRENT_EXPLAINED.md](docs/TENSTORRENT_EXPLAINED.md)** - 🎓 **START HERE!** Beginner's guide to Tenstorrent hardware (no C++ required)
 - **[BLACKHOLE_RISCV.md](docs/BLACKHOLE_RISCV.md)** - Complete RISC-V execution guide
 - **[LLM_SUPPORT.md](docs/LLM_SUPPORT.md)** - LLM integration documentation
 
