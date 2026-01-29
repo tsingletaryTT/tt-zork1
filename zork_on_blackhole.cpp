@@ -100,16 +100,26 @@ int main(int argc, char* argv[]) {
         std::cout << "[Host] Loading game file..." << std::endl;
         std::vector<uint8_t> game_data = load_game_file(game_file);
 
-        // Initialize Tenstorrent device
+        // Initialize Tenstorrent device using parent_mesh → submesh pattern
+        // This is the correct approach for multi-chip systems and may avoid
+        // the core (x=1,y=2) initialization issue by using proper submesh APIs
         std::cout << "[Host] Initializing Blackhole device..." << std::endl;
 
-        // Use create_unit_mesh for device 0 only
-        std::cout << "[Host] Creating unit mesh for device 0..." << std::flush;
-        std::shared_ptr<distributed::MeshDevice> mesh_device =
-            distributed::MeshDevice::create_unit_mesh(0);
+        // Step 1: Get system mesh shape and create parent mesh for ALL devices
+        const auto system_mesh_shape = distributed::SystemMesh::instance().shape();
+        std::cout << "[Host] Creating parent mesh for system (shape: " << system_mesh_shape << ")..." << std::flush;
+
+        std::shared_ptr<distributed::MeshDevice> parent_mesh =
+            distributed::MeshDevice::create(distributed::MeshDeviceConfig(system_mesh_shape));
         std::cout << " done" << std::endl;
 
-        std::cout << "[Host] Using device 0 in 1x1 mesh" << std::endl;
+        // Step 2: Create 1x1 submesh for Zork execution
+        std::cout << "[Host] Creating 1x1 submesh for Zork execution..." << std::flush;
+        std::shared_ptr<distributed::MeshDevice> mesh_device =
+            parent_mesh->create_submesh(distributed::MeshShape(1, 1));
+        std::cout << " done" << std::endl;
+
+        std::cout << "[Host] Device initialized successfully!" << std::endl;
 
         // ═══════════════════════════════════════════════════════
         // ENABLE PROGRAM CACHE - Critical for repeated execution!
@@ -293,6 +303,7 @@ int main(int argc, char* argv[]) {
         // Cleanup (close submesh first, then parent mesh)
         std::cout << "[Host] Closing devices..." << std::endl;
         mesh_device->close();
+        parent_mesh->close();
 
         std::cout << std::endl;
         std::cout << "✓ Proof of concept: Successfully loaded game data onto Blackhole!" << std::endl;
