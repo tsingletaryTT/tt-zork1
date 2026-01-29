@@ -97,7 +97,8 @@ echo ""
 
 echo -e "${BLUE}[System] Initializing game...${NC}"
 echo "" > "$INPUT_FILE"  # Empty input for opening
-rm -f "$STATE_FILE"      # Start fresh
+rm -f "$STATE_FILE"      # Start fresh (CRITICAL: avoid state persistence hang bug!)
+echo -e "${YELLOW}Note: State persistence disabled to avoid hang bug${NC}"
 
 echo -e "${BLUE}[System] Running opening sequence (5 batches = 500 instructions)...${NC}"
 echo -e "${BLUE}          This will take ~5-8 seconds...${NC}"
@@ -156,6 +157,9 @@ while true; do
 
     # Write command to input file
     echo "$cmd" > "$INPUT_FILE"
+
+    # Clear state file to avoid hang bug (state persistence broken for now)
+    rm -f "$STATE_FILE"
 
     echo -e "${BLUE}[System] Processing \"$cmd\"...${NC}"
 
