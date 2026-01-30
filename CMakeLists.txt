@@ -14,6 +14,11 @@ add_executable(zork_batched)
 target_sources(zork_batched PRIVATE zork_batched.cpp)
 target_link_libraries(zork_batched PUBLIC TT::Metalium)
 
+# Host program - REPL mode (persistent device, compiled kernel)
+add_executable(zork_repl)
+target_sources(zork_repl PRIVATE zork_repl.cpp)
+target_link_libraries(zork_repl PUBLIC TT::Metalium)
+
 # Minimal device init test
 add_executable(test_device_init)
 target_sources(test_device_init PRIVATE test_device_init.cpp)
