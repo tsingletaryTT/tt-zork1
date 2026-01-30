@@ -48,6 +48,9 @@ private:
     // Kernel defines (set once, reused for program compilation)
     std::map<std::string, std::string> kernel_defines;
 
+    // Workload (created ONCE, reused for all commands - this is the key!)
+    std::shared_ptr<distributed::MeshWorkload> workload;
+
     // Game data
     std::vector<uint8_t> game_data;
     std::vector<uint8_t> state_data;
@@ -155,6 +158,11 @@ public:
         setup_kernel_defines();
         std::cout << "✓" << std::endl;
 
+        // Create workload ONCE (TT-Metal pattern: create once, reuse forever!)
+        std::cout << "[Init] Creating reusable workload... " << std::flush;
+        create_workload();
+        std::cout << "✓" << std::endl;
+
         auto end_time = high_resolution_clock::now();
         auto init_ms = duration_cast<milliseconds>(end_time - start_time).count();
 
@@ -189,8 +197,9 @@ public:
         kernel_defines["STATE_DRAM_ADDR"] = addr_buf;
     }
 
-    // Create program with kernel (relies on program cache for speed)
-    Program create_program() {
+    // Create workload ONCE (TT-Metal best practice: reuse workload objects!)
+    void create_workload() {
+        // Create program
         Program program = CreateProgram();
 
         CreateKernel(
@@ -204,7 +213,14 @@ public:
             }
         );
 
-        return program;
+        // Create workload and add program (done ONCE!)
+        workload = std::make_shared<distributed::MeshWorkload>();
+        distributed::MeshCoordinateRange device_range(mesh_device->shape());
+        workload->add_program(device_range, std::move(program));
+
+        // Execute once to "warm up" (TT-Metal pattern from test_mesh_workload.cpp)
+        distributed::EnqueueMeshWorkload(*cq, *workload, /*blocking=*/false);
+        distributed::Finish(*cq);
     }
 
     // Execute a batch (reuses compiled program!)
@@ -217,15 +233,9 @@ public:
         }
         distributed::EnqueueWriteMeshBuffer(*cq, input_buffer, input_data, /*blocking=*/true);
 
-        // Create program (program cache makes this fast after first time!)
-        Program program = create_program();
-
-        // Execute kernel
-        distributed::MeshWorkload workload;
-        distributed::MeshCoordinateRange device_range(mesh_device->shape());
-        workload.add_program(device_range, std::move(program));
-
-        distributed::EnqueueMeshWorkload(*cq, workload, /*blocking=*/false);
+        // REUSE the workload (TT-Metal best practice from test_mesh_workload.cpp!)
+        // This is the key to fast execution - no program recreation!
+        distributed::EnqueueMeshWorkload(*cq, *workload, /*blocking=*/false);
         distributed::Finish(*cq);
 
         // Read output
