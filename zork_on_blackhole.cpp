@@ -114,9 +114,13 @@ int main(int argc, char* argv[]) {
         std::cout << " done" << std::endl;
 
         // Step 2: Create 1x1 submesh for Zork execution
-        std::cout << "[Host] Creating 1x1 submesh for Zork execution..." << std::flush;
+        // Use chip 1 (offset 1,0) to avoid chip 0's core (x=1,y=2) issue
+        std::cout << "[Host] Creating 1x1 submesh for Zork execution (using chip 1)..." << std::flush;
         std::shared_ptr<distributed::MeshDevice> mesh_device =
-            parent_mesh->create_submesh(distributed::MeshShape(1, 1));
+            parent_mesh->create_submesh(
+                distributed::MeshShape(1, 1),
+                distributed::MeshCoordinate(1, 0)  // Start at chip 1 instead of chip 0
+            );
         std::cout << " done" << std::endl;
 
         std::cout << "[Host] Device initialized successfully!" << std::endl;

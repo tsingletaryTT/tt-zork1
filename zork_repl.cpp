@@ -218,9 +218,8 @@ public:
         distributed::MeshCoordinateRange device_range(mesh_device->shape());
         workload->add_program(device_range, std::move(program));
 
-        // Execute once to "warm up" (TT-Metal pattern from test_mesh_workload.cpp)
-        distributed::EnqueueMeshWorkload(*cq, *workload, /*blocking=*/false);
-        distributed::Finish(*cq);
+        // NOTE: Skipping warm-up execution - execute_batch("") will be first execution
+        // (TT-Metal test does warm-up, but maybe not needed for our use case)
     }
 
     // Execute a batch (reuses compiled program!)
