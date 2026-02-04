@@ -67,14 +67,16 @@ static uint32_t opcode_track_count;
  * Z-machine state snapshot for persistence between kernel invocations
  * This allows us to run interpret() in batches of 100 instructions
  */
-// MINIMAL STATE - Phase 1: Prove state persistence works end-to-end
-// Just the 4 most critical values - Total: 16 bytes
+// PHASE 2 WORKING: Partial stack persistence (128 entries)
+// Total: 272 bytes (well under 4KB limit)
+// NOTE: Frames excluded - pointer conversion logic needs debugging
 struct ZMachineState {
     uint32_t pc_offset;          // PC as offset from memory base - 4 bytes
     uint32_t sp;                 // Stack pointer - 4 bytes
     uint32_t frame_sp;           // Call frame stack pointer - 4 bytes
     uint32_t instruction_count;  // Total instructions executed - 4 bytes
-    // Total: 16 bytes (well under 4KB limit)
+    zword stack[128];            // Partial stack (128 entries) - 256 bytes
+    // Total: 4 + 4 + 4 + 4 + 256 = 272 bytes
 };
 
 // Debug counters
@@ -1146,22 +1148,32 @@ static void output_opcode_stats() {
 /**
  * Save Z-machine state to buffer for persistence between batches
  */
-// MINIMAL save_state - Phase 1: Only save critical 4 values
+// PHASE 2 save_state: Save PC/SP + partial stack (128 entries)
 static void save_state(ZMachineState* state) {
     state->pc_offset = (uint32_t)(pc - memory);  // Convert pointer to offset
     state->sp = sp;
     state->frame_sp = frame_sp;
     // instruction_count updated separately in main
+
+    // Copy first 128 stack entries (or all if sp < 128)
+    uint32_t stack_entries = (sp < 128) ? sp : 128;
+    for (uint32_t i = 0; i < stack_entries; i++) {
+        state->stack[i] = stack[i];
+    }
 }
 
-// MINIMAL load_state - Phase 1: Only restore critical 4 values
-// NOTE: Stack and frames are NOT restored - game continues with current execution state
-// This is sufficient for testing state persistence mechanism
+// PHASE 2 load_state: Restore PC/SP + partial stack (128 entries)
 static void load_state(const ZMachineState* state) {
     pc = memory + state->pc_offset;  // Convert offset back to pointer
     sp = state->sp;
     frame_sp = state->frame_sp;
     // instruction_count loaded separately in main
+
+    // Restore first 128 stack entries (or all if sp < 128)
+    uint32_t stack_entries = (sp < 128) ? sp : 128;
+    for (uint32_t i = 0; i < stack_entries; i++) {
+        stack[i] = state->stack[i];
+    }
 }
 
 /**
