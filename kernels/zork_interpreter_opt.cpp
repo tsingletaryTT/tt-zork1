@@ -67,18 +67,14 @@ static uint32_t opcode_track_count;
  * Z-machine state snapshot for persistence between kernel invocations
  * This allows us to run interpret() in batches of 100 instructions
  */
-// Reduced state structure that fits in 4KB (NoC transfer limit)
-// Total size: ~2.3KB (2320 bytes) - well under 4096 byte limit
+// MINIMAL STATE - Phase 1: Prove state persistence works end-to-end
+// Just the 4 most critical values - Total: 16 bytes
 struct ZMachineState {
-    uint32_t pc_offset;          // PC as offset from memory base (not pointer!) - 4 bytes
+    uint32_t pc_offset;          // PC as offset from memory base - 4 bytes
     uint32_t sp;                 // Stack pointer - 4 bytes
-    zword stack[512];            // Stack contents (reduced from 1024) - 1024 bytes
     uint32_t frame_sp;           // Call frame stack pointer - 4 bytes
-    Frame frames[32];            // Call frames (reduced from 64) - 1280 bytes
-    bool finished;               // Execution finished flag - 4 bytes (padded)
-    uint32_t out_pos;            // Output buffer position - 4 bytes
     uint32_t instruction_count;  // Total instructions executed - 4 bytes
-    // Total: 4 + 4 + 1024 + 4 + 1280 + 4 + 4 + 4 = 2328 bytes
+    // Total: 16 bytes (well under 4KB limit)
 };
 
 // Debug counters
@@ -1150,51 +1146,22 @@ static void output_opcode_stats() {
 /**
  * Save Z-machine state to buffer for persistence between batches
  */
+// MINIMAL save_state - Phase 1: Only save critical 4 values
 static void save_state(ZMachineState* state) {
     state->pc_offset = (uint32_t)(pc - memory);  // Convert pointer to offset
     state->sp = sp;
     state->frame_sp = frame_sp;
-    state->finished = finished;
-    state->out_pos = out_pos;
-
-    // Copy stack
-    for (uint32_t i = 0; i < 1024; i++) {
-        state->stack[i] = stack[i];
-    }
-
-    // Copy call frames
-    for (uint32_t i = 0; i < 64; i++) {
-        state->frames[i] = frames[i];
-        // Convert ret_pc pointer to offset
-        if (state->frames[i].ret_pc != nullptr) {
-            state->frames[i].ret_pc = (zbyte*)(state->frames[i].ret_pc - memory);
-        }
-    }
+    // instruction_count updated separately in main
 }
 
-/**
- * Load Z-machine state from buffer to resume execution
- */
+// MINIMAL load_state - Phase 1: Only restore critical 4 values
+// NOTE: Stack and frames are NOT restored - game continues with current execution state
+// This is sufficient for testing state persistence mechanism
 static void load_state(const ZMachineState* state) {
     pc = memory + state->pc_offset;  // Convert offset back to pointer
     sp = state->sp;
     frame_sp = state->frame_sp;
-    finished = state->finished;
-    out_pos = state->out_pos;
-
-    // Copy stack
-    for (uint32_t i = 0; i < 1024; i++) {
-        stack[i] = state->stack[i];
-    }
-
-    // Copy call frames
-    for (uint32_t i = 0; i < 64; i++) {
-        frames[i] = state->frames[i];
-        // Convert ret_pc offset back to pointer
-        if (frames[i].ret_pc != nullptr) {
-            frames[i].ret_pc = memory + (uint32_t)frames[i].ret_pc;
-        }
-    }
+    // instruction_count loaded separately in main
 }
 
 /**
