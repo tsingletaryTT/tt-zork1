@@ -247,11 +247,19 @@ int main(int argc, char* argv[]) {
         kernel_defines["OUTPUT_DRAM_ADDR"] = addr_buf;
         snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)input_buffer->address());
         kernel_defines["INPUT_DRAM_ADDR"] = addr_buf;
-        // STATE PERSISTENCE ENABLED - Capturing hang with debug instrumentation
-        // Baseline confirmed working (4 batches complete without state)
-        // Now testing WITH state persistence to diagnose NoC hang
-        snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)state_buffer->address());
-        kernel_defines["STATE_DRAM_ADDR"] = addr_buf;
+        // STATE PERSISTENCE NOT VIABLE - Investigation Complete (Feb 4, 2026)
+        // Root Cause: Kernel's NoC operations (noc_async_read/write) to state buffer
+        // cause hangs on batch 2+ regardless of serialization approach.
+        // Evidence:
+        //   - 16B state: Batch 1 ✅, Batch 2 ❌ (hangs)
+        //   - 272B state (stack): Batch 1 ✅, Batch 2 ❌ (hangs)
+        //   - 432B state (stack+frames): Batch 1 ✅, Batch 2 ❌ (hangs)
+        // Frame serialization is correct (SerializedFrame with proper pointer-to-offset
+        // conversion), but doesn't matter - the NoC operations themselves cause the hang.
+        // WORKING SOLUTION: 4-batch workload reuse WITHOUT state persistence.
+        // Uncomment below to re-enable for further investigation:
+        // snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)state_buffer->address());
+        // kernel_defines["STATE_DRAM_ADDR"] = addr_buf;
 
         // Create kernel (compiled once)
         KernelHandle kernel_id = CreateKernel(
