@@ -1256,14 +1256,14 @@ void kernel_main() {
     dictionary_addr = read_word(0x08);   // Dictionary table
 
 #ifdef STATE_DRAM_ADDR
-    // BATCHED EXECUTION MODE: Load previous state if exists
-    // INSTRUMENTED WITH WAY POINTS + RING BUFFER (DPRINT excluded - too large)
+    // MINIMAL STATE TEST - Only 32 bytes (8 uint32_t values)
+    // Testing if issue is NoC operations vs full ZMachineState size
 
     WAYPOINT("SS1");  // State Start 1
     WATCHER_RING_BUFFER_PUSH(0xDEAD0001);  // Marker: state section start
 
     constexpr uint32_t L1_STATE = 0x50000;  // 320KB into L1 for state
-    constexpr uint32_t STATE_SIZE = sizeof(ZMachineState);
+    constexpr uint32_t STATE_SIZE = 4096;     // MINIMAL: Just 32 bytes (8 uint32_t)
 
     WAYPOINT("SS2");  // State Start 2
 
@@ -1273,7 +1273,7 @@ void kernel_main() {
     WATCHER_RING_BUFFER_PUSH((uint32_t)(state_dram_noc_addr >> 32));  // NoC addr high
     WATCHER_RING_BUFFER_PUSH((uint32_t)(state_dram_noc_addr & 0xFFFFFFFF));  // NoC addr low
 
-    // CRITICAL: This NoC read hangs on batch 2+
+    // CRITICAL: Test minimal NoC read (just 32 bytes)
     WAYPOINT("SRD");  // State Read
     WATCHER_RING_BUFFER_PUSH(0xBEEF0001);  // Marker: before read
     noc_async_read(state_dram_noc_addr, L1_STATE, STATE_SIZE);
@@ -1285,16 +1285,17 @@ void kernel_main() {
     WAYPOINT("SRL");  // State Read Load (after barrier)
     WATCHER_RING_BUFFER_PUSH(0xBEEF0003);  // Marker: read complete
 
-    ZMachineState* state = (ZMachineState*)L1_STATE;
+    // Minimal state: just instruction counter
+    volatile uint32_t* minimal_state = (volatile uint32_t*)L1_STATE;
+    uint32_t instruction_count = minimal_state[0];
 
     WAYPOINT("SRI");  // State Read Inspect
-    WATCHER_RING_BUFFER_PUSH(state->instruction_count);  // Log instruction count
+    WATCHER_RING_BUFFER_PUSH(instruction_count);  // Log instruction count
 
-    if (state->instruction_count > 0) {
-        // Resume from previous batch
+    if (instruction_count > 0) {
+        // Resume from previous batch - NOT IMPLEMENTED for minimal test
         WAYPOINT("SRS");  // State Resume
-        load_state(state);
-        const char* h = "[Resuming from previous batch]\n";
+        const char* h = "[Minimal state test - no resume]\n";
         while (*h) output[out_pos++] = *h++;
     } else {
         // First batch - initialize fresh
@@ -1305,7 +1306,6 @@ void kernel_main() {
         finished = false;
         pc = memory + initial_pc;
         out_pos = 0;
-        state->instruction_count = 0;
     }
 #else
     // SINGLE-SHOT MODE: Always initialize fresh
@@ -1354,18 +1354,16 @@ void kernel_main() {
     output[out_pos++] = '\0';
 
 #ifdef STATE_DRAM_ADDR
-    // Save state for next batch
+    // Save minimal state (just counter)
     WAYPOINT("SEX");  // State Execute done (before save)
 
-    state->instruction_count += 100;  // We just executed 100 instructions
+    minimal_state[0] = instruction_count + 100;  // We just executed 100 instructions
     WAYPOINT("SSV");  // State Save
-    save_state(state);
 
-    // Write state back to DRAM (rounded to 32-byte alignment)
-    uint32_t state_size = ((STATE_SIZE + 31) / 32) * 32;
+    // Write state back to DRAM (32 bytes, already aligned)
     WAYPOINT("SWR");  // State Write
     WATCHER_RING_BUFFER_PUSH(0xCAFE0001);  // Marker: before write
-    noc_async_write(L1_STATE, state_dram_noc_addr, state_size);
+    noc_async_write(L1_STATE, state_dram_noc_addr, STATE_SIZE);
 
     WAYPOINT("SWB");  // State Write Barrier
     WATCHER_RING_BUFFER_PUSH(0xCAFE0002);  // Marker: before write barrier
