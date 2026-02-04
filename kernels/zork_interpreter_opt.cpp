@@ -13,6 +13,11 @@
 #include <cstdint>
 #include "api/dataflow/dataflow_api.h"
 
+// TT-Metal debug tools - CRITICAL for diagnosing state persistence hang
+// NOTE: DPRINT excluded - too large for kernel size limits
+#include "api/debug/waypoint.h"      // WAYPOINT("XXX") - logs 4-char markers to watcher
+#include "api/debug/ring_buffer.h"   // WATCHER_RING_BUFFER_PUSH(val) - post-mortem log
+
 // DRAM addresses passed via compile-time defines from host
 #ifndef GAME_DRAM_ADDR
 #error "GAME_DRAM_ADDR must be defined"
@@ -1252,23 +1257,48 @@ void kernel_main() {
 
 #ifdef STATE_DRAM_ADDR
     // BATCHED EXECUTION MODE: Load previous state if exists
+    // INSTRUMENTED WITH WAY POINTS + RING BUFFER (DPRINT excluded - too large)
+
+    WAYPOINT("SS1");  // State Start 1
+    WATCHER_RING_BUFFER_PUSH(0xDEAD0001);  // Marker: state section start
+
     constexpr uint32_t L1_STATE = 0x50000;  // 320KB into L1 for state
     constexpr uint32_t STATE_SIZE = sizeof(ZMachineState);
 
-    // Read state from DRAM
+    WAYPOINT("SS2");  // State Start 2
+
+    // Calculate NoC address for state buffer in DRAM
     uint64_t state_dram_noc_addr = get_noc_addr(0, 0, STATE_DRAM_ADDR);
+    WAYPOINT("SNA");  // State NoC Address
+    WATCHER_RING_BUFFER_PUSH((uint32_t)(state_dram_noc_addr >> 32));  // NoC addr high
+    WATCHER_RING_BUFFER_PUSH((uint32_t)(state_dram_noc_addr & 0xFFFFFFFF));  // NoC addr low
+
+    // CRITICAL: This NoC read hangs on batch 2+
+    WAYPOINT("SRD");  // State Read
+    WATCHER_RING_BUFFER_PUSH(0xBEEF0001);  // Marker: before read
     noc_async_read(state_dram_noc_addr, L1_STATE, STATE_SIZE);
+
+    WAYPOINT("SRB");  // State Read Barrier
+    WATCHER_RING_BUFFER_PUSH(0xBEEF0002);  // Marker: before read barrier
     noc_async_read_barrier();
+
+    WAYPOINT("SRL");  // State Read Load (after barrier)
+    WATCHER_RING_BUFFER_PUSH(0xBEEF0003);  // Marker: read complete
 
     ZMachineState* state = (ZMachineState*)L1_STATE;
 
+    WAYPOINT("SRI");  // State Read Inspect
+    WATCHER_RING_BUFFER_PUSH(state->instruction_count);  // Log instruction count
+
     if (state->instruction_count > 0) {
         // Resume from previous batch
+        WAYPOINT("SRS");  // State Resume
         load_state(state);
         const char* h = "[Resuming from previous batch]\n";
         while (*h) output[out_pos++] = *h++;
     } else {
         // First batch - initialize fresh
+        WAYPOINT("SRF");  // State Fresh
         zword initial_pc = read_word(0x06);
         sp = 0;
         frame_sp = 0;
@@ -1325,13 +1355,24 @@ void kernel_main() {
 
 #ifdef STATE_DRAM_ADDR
     // Save state for next batch
+    WAYPOINT("SEX");  // State Execute done (before save)
+
     state->instruction_count += 100;  // We just executed 100 instructions
+    WAYPOINT("SSV");  // State Save
     save_state(state);
 
     // Write state back to DRAM (rounded to 32-byte alignment)
     uint32_t state_size = ((STATE_SIZE + 31) / 32) * 32;
+    WAYPOINT("SWR");  // State Write
+    WATCHER_RING_BUFFER_PUSH(0xCAFE0001);  // Marker: before write
     noc_async_write(L1_STATE, state_dram_noc_addr, state_size);
+
+    WAYPOINT("SWB");  // State Write Barrier
+    WATCHER_RING_BUFFER_PUSH(0xCAFE0002);  // Marker: before write barrier
     noc_async_write_barrier();
+
+    WAYPOINT("SDN");  // State Done
+    WATCHER_RING_BUFFER_PUSH(0xDEAD0002);  // Marker: state section complete
 #endif
 
     // Step 2: Use NoC to copy output from L1 to DRAM

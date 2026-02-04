@@ -247,13 +247,11 @@ int main(int argc, char* argv[]) {
         kernel_defines["OUTPUT_DRAM_ADDR"] = addr_buf;
         snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)input_buffer->address());
         kernel_defines["INPUT_DRAM_ADDR"] = addr_buf;
-        // STATE PERSISTENCE DISABLED - Root cause identified!
-        // The kernel's NoC read/write of state buffer causes batch 2+ to hang
-        // Even reading state ONCE (not between batches) causes severe performance issues
-        // The problem is the KERNEL accessing state via NoC, not the host reading it
-        // Conclusion: State persistence via DRAM is not viable with current kernel design
-        // snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)state_buffer->address());
-        // kernel_defines["STATE_DRAM_ADDR"] = addr_buf;
+        // STATE PERSISTENCE ENABLED - Capturing hang with debug instrumentation
+        // Baseline confirmed working (4 batches complete without state)
+        // Now testing WITH state persistence to diagnose NoC hang
+        snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)state_buffer->address());
+        kernel_defines["STATE_DRAM_ADDR"] = addr_buf;
 
         // Create kernel (compiled once)
         KernelHandle kernel_id = CreateKernel(
