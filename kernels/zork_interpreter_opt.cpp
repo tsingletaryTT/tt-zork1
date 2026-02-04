@@ -46,7 +46,7 @@ static zword abbrev_table;
 static zword global_vars_addr;  // Address of global variables table
 static zword dictionary_addr;   // Address of dictionary table
 
-// Call frame for routine calls
+// Call frame for routine calls (runtime)
 struct Frame {
     zbyte* ret_pc;       // Where to return to
     zbyte num_locals;    // How many local variables this routine has
@@ -55,6 +55,14 @@ struct Frame {
 };
 static Frame frames[64];
 static uint32_t frame_sp;
+
+// Serialized call frame (for state persistence - pointers converted to offsets)
+struct SerializedFrame {
+    uint32_t ret_pc_offset;  // Return PC as offset (not pointer!)
+    zbyte num_locals;
+    zword locals[15];
+    zbyte store_var;
+};
 
 // Flag to stop execution
 static bool finished;
@@ -67,16 +75,16 @@ static uint32_t opcode_track_count;
  * Z-machine state snapshot for persistence between kernel invocations
  * This allows us to run interpret() in batches of 100 instructions
  */
-// PHASE 2 WORKING: Partial stack persistence (128 entries)
-// Total: 272 bytes (well under 4KB limit)
-// NOTE: Frames excluded - pointer conversion logic needs debugging
+// PHASE 2 DEBUG: Adding call frames with proper serialization
+// Total: ~432 bytes (testing smaller size)
 struct ZMachineState {
     uint32_t pc_offset;          // PC as offset from memory base - 4 bytes
     uint32_t sp;                 // Stack pointer - 4 bytes
     uint32_t frame_sp;           // Call frame stack pointer - 4 bytes
     uint32_t instruction_count;  // Total instructions executed - 4 bytes
     zword stack[128];            // Partial stack (128 entries) - 256 bytes
-    // Total: 4 + 4 + 4 + 4 + 256 = 272 bytes
+    SerializedFrame frames[4];   // Serialized frames (4 frames) - 160 bytes
+    // Total: 4 + 4 + 4 + 4 + 256 + 160 = 432 bytes
 };
 
 // Debug counters
@@ -1148,7 +1156,7 @@ static void output_opcode_stats() {
 /**
  * Save Z-machine state to buffer for persistence between batches
  */
-// PHASE 2 save_state: Save PC/SP + partial stack (128 entries)
+// PHASE 2 save_state: Save PC/SP + partial stack + serialized frames
 static void save_state(ZMachineState* state) {
     state->pc_offset = (uint32_t)(pc - memory);  // Convert pointer to offset
     state->sp = sp;
@@ -1160,9 +1168,25 @@ static void save_state(ZMachineState* state) {
     for (uint32_t i = 0; i < stack_entries; i++) {
         state->stack[i] = stack[i];
     }
+
+    // Serialize first 4 call frames (convert pointers to offsets)
+    uint32_t frame_entries = (frame_sp < 4) ? frame_sp : 4;
+    for (uint32_t i = 0; i < frame_entries; i++) {
+        // Convert ret_pc pointer to offset
+        if (frames[i].ret_pc != nullptr) {
+            state->frames[i].ret_pc_offset = (uint32_t)(frames[i].ret_pc - memory);
+        } else {
+            state->frames[i].ret_pc_offset = 0;  // nullptr = 0 offset
+        }
+        state->frames[i].num_locals = frames[i].num_locals;
+        state->frames[i].store_var = frames[i].store_var;
+        for (int j = 0; j < 15; j++) {
+            state->frames[i].locals[j] = frames[i].locals[j];
+        }
+    }
 }
 
-// PHASE 2 load_state: Restore PC/SP + partial stack (128 entries)
+// PHASE 2 load_state: Restore PC/SP + partial stack + deserialized frames
 static void load_state(const ZMachineState* state) {
     pc = memory + state->pc_offset;  // Convert offset back to pointer
     sp = state->sp;
@@ -1173,6 +1197,22 @@ static void load_state(const ZMachineState* state) {
     uint32_t stack_entries = (sp < 128) ? sp : 128;
     for (uint32_t i = 0; i < stack_entries; i++) {
         stack[i] = state->stack[i];
+    }
+
+    // Deserialize first 4 call frames (convert offsets to pointers)
+    uint32_t frame_entries = (frame_sp < 4) ? frame_sp : 4;
+    for (uint32_t i = 0; i < frame_entries; i++) {
+        // Convert ret_pc offset back to pointer
+        if (state->frames[i].ret_pc_offset != 0) {
+            frames[i].ret_pc = memory + state->frames[i].ret_pc_offset;
+        } else {
+            frames[i].ret_pc = nullptr;  // 0 offset = nullptr
+        }
+        frames[i].num_locals = state->frames[i].num_locals;
+        frames[i].store_var = state->frames[i].store_var;
+        for (int j = 0; j < 15; j++) {
+            frames[i].locals[j] = state->frames[i].locals[j];
+        }
     }
 }
 
