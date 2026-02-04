@@ -1249,6 +1249,14 @@ void kernel_main() {
     constexpr uint32_t GAME_SIZE = 87040;    // Actual game size + alignment
     constexpr uint32_t INPUT_SIZE = 1024;    // Input buffer size
 
+    // Host-side state management: state transferred via input/output buffers
+    // Input buffer layout: [command string (256 bytes)][state (768 bytes)]
+    // Output buffer layout: [text output (15KB)][state (768 bytes)]
+    constexpr uint32_t CMD_SIZE = 256;       // Command string portion
+    constexpr uint32_t STATE_SIZE = 768;     // State portion (512 is enough, padded to 768)
+    constexpr uint32_t STATE_OFFSET_INPUT = CMD_SIZE;  // State starts after command
+    constexpr uint32_t STATE_OFFSET_OUTPUT = 15 * 1024;  // State starts after text
+
     // Read game data in 4KB chunks to avoid NoC transfer size limits
     constexpr uint32_t CHUNK_SIZE = 4096;
     uint32_t offset = 0;
@@ -1277,66 +1285,34 @@ void kernel_main() {
     global_vars_addr = read_word(0x0C);  // Global variables table
     dictionary_addr = read_word(0x08);   // Dictionary table
 
-#ifdef STATE_DRAM_ADDR
-    // BATCHED EXECUTION MODE with Reduced State (~2.3KB fits in NoC 4KB limit)
+    // Host-side state management: Check if state exists in input buffer
+    // State is located at L1_INPUT + STATE_OFFSET_INPUT (after command string)
+    ZMachineState* state_in = (ZMachineState*)(L1_INPUT + STATE_OFFSET_INPUT);
 
-    WAYPOINT("SS1");  // State Start 1
-    WATCHER_RING_BUFFER_PUSH(0xDEAD0001);  // Marker: state section start
+    if (state_in->instruction_count > 0) {
+        // Resume from previous batch - state provided by host
+        load_state(state_in);
+        const char* h = "[Resuming from instruction ";
+        while (*h) output[out_pos++] = *h++;
 
-    constexpr uint32_t L1_STATE = 0x50000;  // 320KB into L1 for state
-    constexpr uint32_t STATE_SIZE = 2048;  // ~2.3KB
+        // Print instruction count
+        uint32_t count = state_in->instruction_count;
+        if (count >= 1000) output[out_pos++] = '0' + (count / 1000) % 10;
+        if (count >= 100) output[out_pos++] = '0' + (count / 100) % 10;
+        if (count >= 10) output[out_pos++] = '0' + (count / 10) % 10;
+        output[out_pos++] = '0' + (count % 10);
 
-    WAYPOINT("SS2");  // State Start 2
-
-    // Calculate NoC address for state buffer in DRAM
-    uint64_t state_dram_noc_addr = get_noc_addr(0, 0, STATE_DRAM_ADDR);
-    WAYPOINT("SNA");  // State NoC Address
-    WATCHER_RING_BUFFER_PUSH((uint32_t)(state_dram_noc_addr >> 32));  // NoC addr high
-    WATCHER_RING_BUFFER_PUSH((uint32_t)(state_dram_noc_addr & 0xFFFFFFFF));  // NoC addr low
-
-    // NoC read - under 4KB limit
-    WAYPOINT("SRD");  // State Read
-    WATCHER_RING_BUFFER_PUSH(0xBEEF0001);  // Marker: before read
-    noc_async_read(state_dram_noc_addr, L1_STATE, STATE_SIZE);
-
-    WAYPOINT("SRB");  // State Read Barrier
-    WATCHER_RING_BUFFER_PUSH(0xBEEF0002);  // Marker: before read barrier
-    noc_async_read_barrier();
-
-    WAYPOINT("SRL");  // State Read Load (after barrier)
-    WATCHER_RING_BUFFER_PUSH(0xBEEF0003);  // Marker: read complete
-
-    ZMachineState* state = (ZMachineState*)L1_STATE;
-
-    WAYPOINT("SRI");  // State Read Inspect
-    WATCHER_RING_BUFFER_PUSH(state->instruction_count);  // Log instruction count
-
-    if (state->instruction_count > 0) {
-        // Resume from previous batch
-        WAYPOINT("SRS");  // State Resume
-        load_state(state);
-        const char* h = "[Resuming from previous batch]\n";
+        h = "]\n";
         while (*h) output[out_pos++] = *h++;
     } else {
         // First batch - initialize fresh
-        WAYPOINT("SRF");  // State Fresh
         zword initial_pc = read_word(0x06);
         sp = 0;
         frame_sp = 0;
         finished = false;
         pc = memory + initial_pc;
         out_pos = 0;
-        state->instruction_count = 0;
     }
-#else
-    // SINGLE-SHOT MODE: Always initialize fresh
-    zword initial_pc = read_word(0x06);
-    sp = 0;
-    frame_sp = 0;
-    finished = false;
-    pc = memory + initial_pc;
-    out_pos = 0;
-#endif
 
     const char* h = "╔════════════════════════════════════════════════════╗\n";
     while (*h) output[out_pos++] = *h++;
@@ -1374,33 +1350,19 @@ void kernel_main() {
 
     output[out_pos++] = '\0';
 
-#ifdef STATE_DRAM_ADDR
-    // Save reduced state (~2.3KB)
-    WAYPOINT("SEX");  // State Execute done (before save)
+    // Host-side state management: Write state to output buffer
+    // State is located at L1_OUT + STATE_OFFSET_OUTPUT (after text output)
+    ZMachineState* state_out = (ZMachineState*)(L1_OUT + STATE_OFFSET_OUTPUT);
+    state_out->instruction_count = state_in->instruction_count + 100;  // Increment by 100
+    save_state(state_out);
 
-    state->instruction_count += 100;  // We just executed 100 instructions
-    WAYPOINT("SSV");  // State Save
-    save_state(state);
-
-    // Write state back to DRAM (rounded to 32-byte alignment)
-    uint32_t state_size = ((STATE_SIZE + 31) / 32) * 32;
-    WAYPOINT("SWR");  // State Write
-    WATCHER_RING_BUFFER_PUSH(0xCAFE0001);  // Marker: before write
-    noc_async_write(L1_STATE, state_dram_noc_addr, state_size);
-
-    WAYPOINT("SWB");  // State Write Barrier
-    WATCHER_RING_BUFFER_PUSH(0xCAFE0002);  // Marker: before write barrier
-    noc_async_write_barrier();
-
-    WAYPOINT("SDN");  // State Done
-    WATCHER_RING_BUFFER_PUSH(0xDEAD0002);  // Marker: state section complete
-#endif
-
-    // Step 2: Use NoC to copy output from L1 to DRAM
-    uint32_t output_size = ((out_pos + 31) / 32) * 32;  // Round to 32-byte alignment
+    // Step 2: Use NoC to copy output (text + state) from L1 to DRAM
+    // Output buffer now contains both text and state
+    uint32_t total_output_size = STATE_OFFSET_OUTPUT + STATE_SIZE;  // Text + state
+    uint32_t aligned_size = ((total_output_size + 31) / 32) * 32;   // 32-byte alignment
     uint64_t output_dram_noc_addr = get_noc_addr(0, 0, OUTPUT_DRAM_ADDR);
-    noc_async_write(L1_OUT, output_dram_noc_addr, output_size);
+    noc_async_write(L1_OUT, output_dram_noc_addr, aligned_size);
     noc_async_write_barrier();
 
-    // Done! Output and state transferred from L1 to DRAM
+    // Done! Output (text + state) transferred from L1 to DRAM
 }

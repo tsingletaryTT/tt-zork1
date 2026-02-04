@@ -27,10 +27,15 @@ using namespace std::chrono;
 
 // Constants
 constexpr uint32_t MAX_GAME_SIZE = 128 * 1024;    // 128KB for game file
-constexpr uint32_t MAX_OUTPUT_SIZE = 16 * 1024;   // 16KB output buffer
-constexpr uint32_t MAX_INPUT_SIZE = 1024;         // 1KB input buffer
-constexpr uint32_t MAX_STATE_SIZE = 16 * 1024;    // 16KB state buffer
+constexpr uint32_t MAX_OUTPUT_SIZE = 16 * 1024;   // 16KB output buffer (text + state)
+constexpr uint32_t MAX_INPUT_SIZE = 1024;         // 1KB input buffer (command + state)
 constexpr CoreCoord ZORK_CORE = {0, 0};
+
+// Host-side state management constants (must match kernel)
+constexpr uint32_t CMD_SIZE = 256;           // Command string portion of input
+constexpr uint32_t STATE_SIZE = 768;         // State portion (512 is enough, padded to 768)
+constexpr uint32_t STATE_OFFSET_INPUT = CMD_SIZE;      // State starts after command in input
+constexpr uint32_t STATE_OFFSET_OUTPUT = 15 * 1024;   // State starts after text in output
 
 class ZorkREPL {
 private:
@@ -43,7 +48,6 @@ private:
     std::shared_ptr<distributed::MeshBuffer> game_buffer;
     std::shared_ptr<distributed::MeshBuffer> output_buffer;
     std::shared_ptr<distributed::MeshBuffer> input_buffer;
-    std::shared_ptr<distributed::MeshBuffer> state_buffer;
 
     // Kernel defines (set once, reused for program compilation)
     std::map<std::string, std::string> kernel_defines;
@@ -53,7 +57,9 @@ private:
 
     // Game data
     std::vector<uint8_t> game_data;
-    std::vector<uint8_t> state_data;
+
+    // Persistent state (managed by host, transferred via input/output buffers)
+    std::vector<uint8_t> persistent_state;
 
     // Statistics
     int commands_executed;
@@ -109,10 +115,6 @@ public:
             .page_size = MAX_INPUT_SIZE,
             .buffer_type = BufferType::DRAM
         };
-        distributed::DeviceLocalBufferConfig state_dram_config{
-            .page_size = MAX_STATE_SIZE,
-            .buffer_type = BufferType::DRAM
-        };
 
         game_buffer = distributed::MeshBuffer::create(
             distributed::ReplicatedBufferConfig{.size = MAX_GAME_SIZE},
@@ -132,12 +134,6 @@ public:
             mesh_device.get()
         );
 
-        state_buffer = distributed::MeshBuffer::create(
-            distributed::ReplicatedBufferConfig{.size = MAX_STATE_SIZE},
-            state_dram_config,
-            mesh_device.get()
-        );
-
         std::cout << "✓" << std::endl;
 
         // Upload game data ONCE
@@ -147,10 +143,9 @@ public:
         distributed::EnqueueWriteMeshBuffer(*cq, game_buffer, game_data_padded, /*blocking=*/true);
         std::cout << "✓" << std::endl;
 
-        // Initialize state
-        std::cout << "[Init] Initializing Z-machine state... " << std::flush;
-        state_data.resize(MAX_STATE_SIZE, 0);
-        distributed::EnqueueWriteMeshBuffer(*cq, state_buffer, state_data, /*blocking=*/true);
+        // Initialize persistent state (host-side, zero = fresh start)
+        std::cout << "[Init] Initializing Z-machine state (host-side)... " << std::flush;
+        persistent_state.resize(STATE_SIZE, 0);
         std::cout << "✓" << std::endl;
 
         // Set up kernel defines (buffer addresses)
@@ -228,12 +223,21 @@ public:
 
     // Execute a batch (reuses compiled program!)
     void execute_batch(const std::string& input) {
-        // Update input buffer
+        // Prepare input buffer: [command string (256 bytes)][state (768 bytes)]
         std::vector<uint8_t> input_data(MAX_INPUT_SIZE, 0);
+
+        // Pack command string (first 256 bytes)
         if (!input.empty()) {
             std::strncpy(reinterpret_cast<char*>(input_data.data()),
-                        input.c_str(), MAX_INPUT_SIZE - 1);
+                        input.c_str(), CMD_SIZE - 1);
         }
+
+        // Pack state (starts at offset 256)
+        std::memcpy(input_data.data() + STATE_OFFSET_INPUT,
+                   persistent_state.data(),
+                   STATE_SIZE);
+
+        // Upload input (command + state) to device
         distributed::EnqueueWriteMeshBuffer(*cq, input_buffer, input_data, /*blocking=*/true);
 
         // REUSE the workload (TT-Metal best practice from test_mesh_workload.cpp!)
@@ -241,19 +245,20 @@ public:
         distributed::EnqueueMeshWorkload(*cq, *workload, /*blocking=*/false);
         distributed::Finish(*cq);
 
-        // Read output
-        std::vector<char> output_data(MAX_OUTPUT_SIZE);
+        // Read output buffer: [text output (15KB)][state (768 bytes)]
+        std::vector<uint8_t> output_data(MAX_OUTPUT_SIZE);
         distributed::EnqueueReadMeshBuffer(*cq, output_data, output_buffer, /*blocking=*/true);
 
-        // NOTE: State buffer read disabled - not needed without STATE_DRAM_ADDR
-        // Each command starts fresh with no state continuity (proven working in Phase 3.10)
-        // distributed::EnqueueReadMeshBuffer(*cq, state_data, state_buffer, /*blocking=*/true);
-
-        // Display output
-        std::string output(output_data.data());
+        // Extract text output (first 15KB)
+        std::string output(reinterpret_cast<char*>(output_data.data()));
         if (!output.empty()) {
             std::cout << output << std::endl;
         }
+
+        // Extract state (starts at offset 15KB) and save for next batch
+        std::memcpy(persistent_state.data(),
+                   output_data.data() + STATE_OFFSET_OUTPUT,
+                   STATE_SIZE);
 
         commands_executed++;
     }
