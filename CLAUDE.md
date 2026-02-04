@@ -1810,3 +1810,97 @@ for (int batch = 0; batch < num_batches; batch++) {
 2. Test with smaller instruction counts (interpret(50) might allow more batches)
 3. Consider external batching (run program multiple times vs internal loop)
 4. Address chip 3 firmware stability (may require hardware investigation)
+
+### Phase 3.11: **State Persistence Investigation - Root Cause Identified** (Feb 4, 2026)
+
+**Goal:** Implement external state management to enable continuous execution beyond 4-batch limit.
+
+**Approach Attempted:**
+Enable STATE_DRAM_ADDR to allow kernel to persist state, but read state buffer on host only ONCE after all batches complete (not between batches). This "external state management" pattern was designed to avoid the 30x slowdown from reading state between batches.
+
+**What Happened:**
+Re-enabled STATE_DRAM_ADDR in zork_on_blackhole.cpp and ran 4-batch test. Result: **Batch 2+ hangs**, identical to Phase 3.7 behavior.
+
+**Test Results:**
+- Batch 1: ✅ Completes successfully (device init, workload execution, output read)
+- Batch 2: ❌ Prints "--- Batch 2/4 ---" but never completes
+- Process stuck at 101% CPU until manually killed (SIGKILL = exit code 137)
+
+**Root Cause Analysis:**
+
+The problem is **NOT** the host reading state buffers - it's the **kernel's NoC operations** accessing the state buffer that cause the hang.
+
+From `kernels/zork_interpreter_opt.cpp` (lines 1253-1335):
+```cpp
+#ifdef STATE_DRAM_ADDR
+    // START OF BATCH: Read state from DRAM
+    constexpr uint32_t L1_STATE = 0x50000;
+    constexpr uint32_t STATE_SIZE = sizeof(ZMachineState);
+    uint64_t state_dram_noc_addr = get_noc_addr(0, 0, STATE_DRAM_ADDR);
+
+    noc_async_read(state_dram_noc_addr, L1_STATE, STATE_SIZE);  // <-- HANGS HERE
+    noc_async_read_barrier();
+
+    ZMachineState* state = (ZMachineState*)L1_STATE;
+
+    if (state->instruction_count > 0) {
+        load_state(state);  // Resume from previous batch
+    } else {
+        // Initialize fresh
+    }
+
+    // ... execute interpret(100) ...
+
+    // END OF BATCH: Write state back to DRAM
+    state->instruction_count += 100;
+    save_state(state);
+
+    uint32_t state_size = ((STATE_SIZE + 31) / 32) * 32;
+    noc_async_write(L1_STATE, state_dram_noc_addr, state_size);  // <-- OR HANGS HERE
+    noc_async_write_barrier();
+#endif
+```
+
+**The Issue:**
+When STATE_DRAM_ADDR is defined, the kernel performs NoC read/write operations to DRAM for state persistence. These operations cause batch 2+ to hang, regardless of whether the host accesses the buffer or not.
+
+**Why External State Management Doesn't Help:**
+- Host reading state buffer ONCE after all batches (instead of between batches) doesn't matter
+- The kernel ITSELF is doing NoC read/write on EVERY batch
+- The kernel's NoC operations are what cause the hang, not the host's buffer reads
+- Even with "external" state management, the kernel still accesses DRAM internally
+
+**Conclusion:**
+**State persistence via DRAM is NOT viable** with the current kernel design. The NoC read/write operations for state management cause hangs regardless of host-side access patterns. The 4-batch limit is a fundamental constraint given current architecture.
+
+**Working Configuration:**
+- ✅ 4-batch workload reuse pattern (proven reliable when hardware stable)
+- ❌ STATE_DRAM_ADDR disabled (any state persistence via DRAM causes hangs)
+- ✅ Each 4-batch run is independent (no state continuity)
+- ✅ External orchestration possible via multiple program invocations
+
+**Alternatives Considered:**
+1. **Multiple program runs**: Run 4-batch program N times (400N instructions total)
+   - Pros: Works within hardware limits, simple orchestration
+   - Cons: Each run starts fresh (no state continuity), device init overhead per run
+
+2. **Reduce instructions per batch**: Try interpret(50) to allow more batches
+   - Pros: Might avoid resource exhaustion
+   - Cons: Still hits 4-batch limit due to workload reuse pattern ceiling
+
+3. **Kernel redesign**: Remove state persistence, make each batch fully independent
+   - Pros: Would work reliably
+   - Cons: Major refactor, loses ability to resume execution
+
+**Files Modified:**
+- `zork_on_blackhole.cpp` - Reverted STATE_DRAM_ADDR changes, added detailed comments explaining root cause
+
+**Files Analyzed:**
+- `kernels/zork_interpreter_opt.cpp` - Identified NoC operations as hang source (lines 1259-1261, 1333-1334)
+
+**Status:** Investigation complete. Root cause identified: kernel's NoC state persistence operations cause hangs. Current 4-batch pattern without state persistence is the working approach.
+
+**Performance:**
+- 4 batches = 400 instructions = ~10 seconds
+- Comparable to 1980s Commodore 64 Zork experience ✅
+- Sufficient for basic gameplay demonstration

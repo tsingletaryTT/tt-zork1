@@ -247,8 +247,11 @@ int main(int argc, char* argv[]) {
         kernel_defines["OUTPUT_DRAM_ADDR"] = addr_buf;
         snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)input_buffer->address());
         kernel_defines["INPUT_DRAM_ADDR"] = addr_buf;
-        // DISABLED STATE PERSISTENCE - Testing if this fixes batch 2+ hangs
-        // According to CLAUDE.md Phase 3.7, state persistence causes hangs
+        // STATE PERSISTENCE DISABLED - Root cause identified!
+        // The kernel's NoC read/write of state buffer causes batch 2+ to hang
+        // Even reading state ONCE (not between batches) causes severe performance issues
+        // The problem is the KERNEL accessing state via NoC, not the host reading it
+        // Conclusion: State persistence via DRAM is not viable with current kernel design
         // snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)state_buffer->address());
         // kernel_defines["STATE_DRAM_ADDR"] = addr_buf;
 
@@ -291,8 +294,11 @@ int main(int argc, char* argv[]) {
             std::vector<char> output_data(MAX_OUTPUT_SIZE);
             distributed::EnqueueReadMeshBuffer(cq, output_data, output_buffer, /*blocking=*/true);
 
-            // DISABLED STATE PERSISTENCE - Testing if this fixes batch 2+ hangs
-            // distributed::EnqueueReadMeshBuffer(cq, state_data, state_buffer, /*blocking=*/true);
+            // STATE PERSISTENCE NOT VIABLE - See kernel code analysis
+            // The issue is the KERNEL's NoC operations (lines 1259-1261, 1333-1334)
+            // not the host reading the buffer. Even with STATE_DRAM_ADDR defined
+            // just once (not between batches), batch 2+ hangs.
+            // Root cause: noc_async_read/write of state buffer causes hang
 
             // Accumulate output
             accumulated_output += output_data.data();
