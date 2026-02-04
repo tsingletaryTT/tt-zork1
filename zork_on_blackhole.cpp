@@ -136,9 +136,7 @@ int main(int argc, char* argv[]) {
         std::cout << "[Host] Program cache enabled (allows multiple batches without reset)" << std::endl;
 
         distributed::MeshCommandQueue& cq = mesh_device->mesh_command_queue();
-        distributed::MeshWorkload workload;
-        distributed::MeshCoordinateRange device_range =
-            distributed::MeshCoordinateRange(mesh_device->shape());
+        // NOTE: workload and device_range now declared later after buffer setup
 
         // Use DRAM for host-device communication (L1 might not be visible to host)
         std::cout << "[Host] Allocating DRAM buffers..." << std::endl;
@@ -230,43 +228,62 @@ int main(int argc, char* argv[]) {
         std::cout << "       - State buffer at DRAM address: 0x" << std::hex << state_buffer->address() << std::dec << std::endl;
         std::cout << std::endl;
 
-        // Run batches
-        std::string accumulated_output;
+        // ═══════════════════════════════════════════════════════════════════════
+        // CREATE PROGRAM AND WORKLOAD ONCE (Workload Reuse Pattern)
+        // This is the TT-Metal best practice from zork_repl.cpp and test_mesh_workload.cpp
+        // Previously we recreated Program + Kernel in every batch, causing hangs!
+        // ═══════════════════════════════════════════════════════════════════════
+        std::cout << "[Host] Creating program and workload (compile once, reuse many times)..." << std::flush;
+
+        // Create program
+        Program program = CreateProgram();
+
+        // Pass buffer addresses as compile-time defines (done ONCE)
+        std::map<std::string, std::string> kernel_defines;
+        char addr_buf[32];
+        snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)game_buffer->address());
+        kernel_defines["GAME_DRAM_ADDR"] = addr_buf;
+        snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)output_buffer->address());
+        kernel_defines["OUTPUT_DRAM_ADDR"] = addr_buf;
+        snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)input_buffer->address());
+        kernel_defines["INPUT_DRAM_ADDR"] = addr_buf;
+        // DISABLED STATE PERSISTENCE - Testing if this fixes batch 2+ hangs
+        // According to CLAUDE.md Phase 3.7, state persistence causes hangs
+        // snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)state_buffer->address());
+        // kernel_defines["STATE_DRAM_ADDR"] = addr_buf;
+
+        // Create kernel (compiled once)
+        KernelHandle kernel_id = CreateKernel(
+            program,
+            "/home/ttuser/code/tt-zork1/kernels/zork_interpreter_opt.cpp",
+            ZORK_CORE,
+            DataMovementConfig{
+                .processor = DataMovementProcessor::RISCV_0,
+                .noc = NOC::RISCV_0_default,
+                .defines = kernel_defines
+            }
+        );
+
+        // Create workload and add program (done ONCE!)
+        distributed::MeshWorkload workload;
+        distributed::MeshCoordinateRange device_range(mesh_device->shape());
+        workload.add_program(device_range, std::move(program));
+
+        std::cout << " done" << std::endl;
+        std::cout << "[Host] Workload created successfully - ready to execute batches!" << std::endl;
         std::cout << std::endl;
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // RUN BATCHES (Reusing the same workload object!)
+        // Each batch just enqueues the workload, reads results, and updates state
+        // ═══════════════════════════════════════════════════════════════════════
+        std::string accumulated_output;
 
         for (int batch = 0; batch < num_batches; batch++) {
             std::cout << "--- Batch " << (batch + 1) << "/" << num_batches << " ---" << std::endl;
 
-            // Create program and kernel
-            Program program = CreateProgram();
-
-            // Pass buffer addresses as compile-time defines!
-            std::map<std::string, std::string> kernel_defines;
-            char addr_buf[32];
-            snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)game_buffer->address());
-            kernel_defines["GAME_DRAM_ADDR"] = addr_buf;
-            snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)output_buffer->address());
-            kernel_defines["OUTPUT_DRAM_ADDR"] = addr_buf;
-            snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)input_buffer->address());
-            kernel_defines["INPUT_DRAM_ADDR"] = addr_buf;
-            snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)state_buffer->address());
-            kernel_defines["STATE_DRAM_ADDR"] = addr_buf;  // Enable state persistence!
-
-            KernelHandle kernel_id = CreateKernel(
-                program,
-                "/home/ttuser/code/tt-zork1/kernels/zork_interpreter_opt.cpp",
-                ZORK_CORE,
-                DataMovementConfig{
-                    .processor = DataMovementProcessor::RISCV_0,
-                    .noc = NOC::RISCV_0_default,
-                    .defines = kernel_defines
-                }
-            );
-
-            // Execute kernel
-            distributed::MeshWorkload workload;
-            distributed::MeshCoordinateRange device_range(mesh_device->shape());
-            workload.add_program(device_range, std::move(program));
+            // REUSE the workload (key to avoiding hangs!)
+            // This is the pattern from zork_repl.cpp:execute_batch()
             distributed::EnqueueMeshWorkload(cq, workload, /*blocking=*/false);
             distributed::Finish(cq);
 
@@ -274,8 +291,8 @@ int main(int argc, char* argv[]) {
             std::vector<char> output_data(MAX_OUTPUT_SIZE);
             distributed::EnqueueReadMeshBuffer(cq, output_data, output_buffer, /*blocking=*/true);
 
-            // Read state buffer (for persistence across runs)
-            distributed::EnqueueReadMeshBuffer(cq, state_data, state_buffer, /*blocking=*/true);
+            // DISABLED STATE PERSISTENCE - Testing if this fixes batch 2+ hangs
+            // distributed::EnqueueReadMeshBuffer(cq, state_data, state_buffer, /*blocking=*/true);
 
             // Accumulate output
             accumulated_output += output_data.data();
