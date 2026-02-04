@@ -67,15 +67,18 @@ static uint32_t opcode_track_count;
  * Z-machine state snapshot for persistence between kernel invocations
  * This allows us to run interpret() in batches of 100 instructions
  */
+// Reduced state structure that fits in 4KB (NoC transfer limit)
+// Total size: ~2.3KB (2320 bytes) - well under 4096 byte limit
 struct ZMachineState {
-    uint32_t pc_offset;          // PC as offset from memory base (not pointer!)
-    uint32_t sp;                 // Stack pointer
-    zword stack[1024];           // Stack contents
-    uint32_t frame_sp;           // Call frame stack pointer
-    Frame frames[64];            // Call frames
-    bool finished;               // Execution finished flag
-    uint32_t out_pos;            // Output buffer position
-    uint32_t instruction_count;  // Total instructions executed across all batches
+    uint32_t pc_offset;          // PC as offset from memory base (not pointer!) - 4 bytes
+    uint32_t sp;                 // Stack pointer - 4 bytes
+    zword stack[512];            // Stack contents (reduced from 1024) - 1024 bytes
+    uint32_t frame_sp;           // Call frame stack pointer - 4 bytes
+    Frame frames[32];            // Call frames (reduced from 64) - 1280 bytes
+    bool finished;               // Execution finished flag - 4 bytes (padded)
+    uint32_t out_pos;            // Output buffer position - 4 bytes
+    uint32_t instruction_count;  // Total instructions executed - 4 bytes
+    // Total: 4 + 4 + 1024 + 4 + 1280 + 4 + 4 + 4 = 2328 bytes
 };
 
 // Debug counters
@@ -1256,14 +1259,13 @@ void kernel_main() {
     dictionary_addr = read_word(0x08);   // Dictionary table
 
 #ifdef STATE_DRAM_ADDR
-    // MINIMAL STATE TEST - Only 32 bytes (8 uint32_t values)
-    // Testing if issue is NoC operations vs full ZMachineState size
+    // BATCHED EXECUTION MODE with Reduced State (~2.3KB fits in NoC 4KB limit)
 
     WAYPOINT("SS1");  // State Start 1
     WATCHER_RING_BUFFER_PUSH(0xDEAD0001);  // Marker: state section start
 
     constexpr uint32_t L1_STATE = 0x50000;  // 320KB into L1 for state
-    constexpr uint32_t STATE_SIZE = 4096;     // MINIMAL: Just 32 bytes (8 uint32_t)
+    constexpr uint32_t STATE_SIZE = 2048;  // ~2.3KB
 
     WAYPOINT("SS2");  // State Start 2
 
@@ -1273,7 +1275,7 @@ void kernel_main() {
     WATCHER_RING_BUFFER_PUSH((uint32_t)(state_dram_noc_addr >> 32));  // NoC addr high
     WATCHER_RING_BUFFER_PUSH((uint32_t)(state_dram_noc_addr & 0xFFFFFFFF));  // NoC addr low
 
-    // CRITICAL: Test minimal NoC read (just 32 bytes)
+    // NoC read - under 4KB limit
     WAYPOINT("SRD");  // State Read
     WATCHER_RING_BUFFER_PUSH(0xBEEF0001);  // Marker: before read
     noc_async_read(state_dram_noc_addr, L1_STATE, STATE_SIZE);
@@ -1285,17 +1287,16 @@ void kernel_main() {
     WAYPOINT("SRL");  // State Read Load (after barrier)
     WATCHER_RING_BUFFER_PUSH(0xBEEF0003);  // Marker: read complete
 
-    // Minimal state: just instruction counter
-    volatile uint32_t* minimal_state = (volatile uint32_t*)L1_STATE;
-    uint32_t instruction_count = minimal_state[0];
+    ZMachineState* state = (ZMachineState*)L1_STATE;
 
     WAYPOINT("SRI");  // State Read Inspect
-    WATCHER_RING_BUFFER_PUSH(instruction_count);  // Log instruction count
+    WATCHER_RING_BUFFER_PUSH(state->instruction_count);  // Log instruction count
 
-    if (instruction_count > 0) {
-        // Resume from previous batch - NOT IMPLEMENTED for minimal test
+    if (state->instruction_count > 0) {
+        // Resume from previous batch
         WAYPOINT("SRS");  // State Resume
-        const char* h = "[Minimal state test - no resume]\n";
+        load_state(state);
+        const char* h = "[Resuming from previous batch]\n";
         while (*h) output[out_pos++] = *h++;
     } else {
         // First batch - initialize fresh
@@ -1306,6 +1307,7 @@ void kernel_main() {
         finished = false;
         pc = memory + initial_pc;
         out_pos = 0;
+        state->instruction_count = 0;
     }
 #else
     // SINGLE-SHOT MODE: Always initialize fresh
@@ -1354,16 +1356,18 @@ void kernel_main() {
     output[out_pos++] = '\0';
 
 #ifdef STATE_DRAM_ADDR
-    // Save minimal state (just counter)
+    // Save reduced state (~2.3KB)
     WAYPOINT("SEX");  // State Execute done (before save)
 
-    minimal_state[0] = instruction_count + 100;  // We just executed 100 instructions
+    state->instruction_count += 100;  // We just executed 100 instructions
     WAYPOINT("SSV");  // State Save
+    save_state(state);
 
-    // Write state back to DRAM (32 bytes, already aligned)
+    // Write state back to DRAM (rounded to 32-byte alignment)
+    uint32_t state_size = ((STATE_SIZE + 31) / 32) * 32;
     WAYPOINT("SWR");  // State Write
     WATCHER_RING_BUFFER_PUSH(0xCAFE0001);  // Marker: before write
-    noc_async_write(L1_STATE, state_dram_noc_addr, STATE_SIZE);
+    noc_async_write(L1_STATE, state_dram_noc_addr, state_size);
 
     WAYPOINT("SWB");  // State Write Barrier
     WATCHER_RING_BUFFER_PUSH(0xCAFE0002);  // Marker: before write barrier
