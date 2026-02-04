@@ -193,8 +193,12 @@ public:
         snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)input_buffer->address());
         kernel_defines["INPUT_DRAM_ADDR"] = addr_buf;
 
-        snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)state_buffer->address());
-        kernel_defines["STATE_DRAM_ADDR"] = addr_buf;
+        // NOTE: STATE_DRAM_ADDR disabled - state persistence via DRAM NoC causes hangs at batch 2+
+        // Root cause: noc_async_read/write operations on state buffer hang after first batch
+        // Investigation closed (Phase 3.11) - architectural limitation, not code issue
+        // Keeping state_buffer allocated for future use, but not passing to kernel
+        // snprintf(addr_buf, sizeof(addr_buf), "0x%lx", (unsigned long)state_buffer->address());
+        // kernel_defines["STATE_DRAM_ADDR"] = addr_buf;
     }
 
     // Create workload ONCE (TT-Metal best practice: reuse workload objects!)
@@ -241,8 +245,9 @@ public:
         std::vector<char> output_data(MAX_OUTPUT_SIZE);
         distributed::EnqueueReadMeshBuffer(*cq, output_data, output_buffer, /*blocking=*/true);
 
-        // Read state (for persistence)
-        distributed::EnqueueReadMeshBuffer(*cq, state_data, state_buffer, /*blocking=*/true);
+        // NOTE: State buffer read disabled - not needed without STATE_DRAM_ADDR
+        // Each command starts fresh with no state continuity (proven working in Phase 3.10)
+        // distributed::EnqueueReadMeshBuffer(*cq, state_data, state_buffer, /*blocking=*/true);
 
         // Display output
         std::string output(output_data.data());

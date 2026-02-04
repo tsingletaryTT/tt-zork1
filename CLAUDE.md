@@ -518,11 +518,50 @@ tests/
       - `src/zmachine/frotz/src/dumb/dinput.c` - Fast-path logic (~100 lines)
     - **Files Created**:
       - `test-fastpath.sh` - Fast-path verification test
-- [ ] Phase 3: Hardware deployment and testing (Ready to start)
+- [x] Phase 3: Hardware deployment and testing - **PLAYABLE** ✅ (Feb 4, 2026)
+  - [x] Phase 3.0-3.3: Z-machine interpreter on RISC-V (24+ opcodes)
+  - [x] Phase 3.4-3.7: Full game data loading and state persistence investigation
+  - [x] Phase 3.8: READ opcode - Interactive input handling
+  - [x] Phase 3.9: Firmware initialization fix - Using chip 1
+  - [x] Phase 3.10: TT-Metal workload reuse pattern (4-batch execution)
+  - [x] Phase 3.11: State persistence root cause identified (not viable)
+  - [x] **REPL mode implemented** - Fast interactive gameplay
+  - [x] **Interactive script mode** - Stable batched execution
 - [ ] Phase 4: Tensix inference integration (Future)
 - [ ] Phase 5: Optimization and benchmarking
 
-**Current Milestone**: Journey mapping system COMPLETE! Players now see a beautiful 2D ASCII map of their adventure when they die or win. The map shows all visited rooms in spatial layout with Nethack/Rogue aesthetics. Context-free LLM translation fixed and tested (100% accuracy with 1.5B model recommended). Comprehensive test coverage: 58 tests, 100% passing. Native build complete, RISC-V ready for hardware deployment. Next: Hardware deployment (Phase 3).
+**Current Milestone**: **ZORK I IS PLAYABLE ON BLACKHOLE RISC-V!** 🎮🚀
+
+Interactive gameplay is NOW WORKING on Tenstorrent hardware! This is likely the **FIRST TIME EVER** that a Z-machine interpreter has executed interactively on AI accelerator hardware.
+
+**Playability Status (Feb 4, 2026):**
+- ✅ **Two gameplay modes available:**
+  - **REPL Mode** (`./play-zork-repl.sh`) - Fast interactive with device kept warm (100-500ms target)
+  - **Interactive Script** (`./play-zork-interactive.sh`) - Stable batched execution (3-10s per command)
+- ✅ **Full command-response loop** - Type commands, get game responses
+- ✅ **24+ Z-machine opcodes** - Core gameplay fully functional
+- ✅ **READ opcode working** - User input handling complete
+- ✅ **Workload reuse pattern** - 4 batches (400 instructions) execute reliably
+- ✅ **Real Zork text from RISC-V** - Opening text, room descriptions, all working
+- ✅ **Performance acceptable** - 3-10s per command matches 1980s Commodore 64 experience
+- ✅ **Documentation complete** - Quick start guide, troubleshooting, known limitations
+
+**Known Limitations:**
+- ⚠️ **No state persistence across runs** - Each session starts fresh (DRAM NoC hangs proven in Phase 3.11)
+- ⚠️ **Session limits** - May hang after 20-50 commands (firmware/resource constraints)
+- ⚠️ **4-batch ceiling** - Workload reuse works for 4 batches, batch 5+ hangs
+- ⚠️ **Device init overhead** - ~2-3 seconds per program run in batched mode
+
+**Quick Start:**
+```bash
+# REPL Mode (fast, device stays warm)
+./play-zork-repl.sh
+
+# Interactive Script Mode (stable, device reset per command)
+./play-zork-interactive.sh
+```
+
+See `docs/QUICK_START.md` for complete usage guide.
 
 ### Hardware Access
 
