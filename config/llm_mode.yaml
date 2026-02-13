@@ -1,6 +1,4 @@
 # LLM Architecture Configuration - Multi-Agent Mode
-# Auto-generated: 2026-02-13
-
 mode: multi_agent
 
 endpoints:
@@ -8,9 +6,9 @@ endpoints:
     url: http://localhost:8000/v1/chat/completions
     model: /home/ttuser/models/Qwen3-0.6B
     chips: [0]
-    max_tokens: 500
+    max_tokens: 50
     temperature: 0.1
-    prompt_file: prompts/translator/system_v5_with_think.txt
+    prompt_file: prompts/translator/system_v4_direct.txt
 
   artist:
     url: http://localhost:8001/v1/chat/completions

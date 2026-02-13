@@ -51,6 +51,7 @@
 #include "output_capture.h"
 #include "prompt_loader.h"
 #include "llm_client.h"
+#include "llm_router.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -100,19 +101,24 @@ int translator_init(void) {
         /* Continue - defaults are fine */
     }
 
-    /* Initialize LLM client */
-    fprintf(stderr, "[4/4] LLM client...\n");
-    if (llm_client_init() != 0) {
-        fprintf(stderr, "Warning: LLM client unavailable - translation disabled\n");
+    /* Initialize LLM router (replaces direct client) */
+    fprintf(stderr, "[4/4] LLM router...\n");
+    if (llm_router_init(NULL) != 0) {
+        fprintf(stderr, "Warning: LLM router unavailable - translation disabled\n");
+        fprintf(stderr, "  Error: %s\n", llm_router_get_last_error());
         stats.enabled = 0;
         stats.initialized = 1;
         fprintf(stderr, "=== LLM system initialized (DISABLED - fallback mode) ===\n\n");
         return -1;
     }
 
-    /* Check if LLM is actually enabled */
-    if (!llm_client_is_enabled()) {
-        fprintf(stderr, "Info: LLM disabled via configuration\n");
+    /* Check router mode */
+    LLMMode mode = llm_router_get_mode();
+    fprintf(stderr, "  Mode: %s\n", llm_router_mode_to_string(mode));
+
+    /* Check if LLM is ready */
+    if (!llm_router_is_ready()) {
+        fprintf(stderr, "Info: LLM router not ready\n");
         stats.enabled = 0;
     } else {
         stats.enabled = 1;
@@ -142,7 +148,7 @@ int translator_process(const char *user_input,
     stats.total_translations++;
 
     /* Check if LLM is enabled */
-    if (!stats.enabled || !llm_client_is_enabled()) {
+    if (!stats.enabled || !llm_router_is_ready()) {
         /* Fallback: pass through original input */
         strncpy(output_commands, user_input, output_size - 1);
         output_commands[output_size - 1] = '\0';
@@ -151,64 +157,23 @@ int translator_process(const char *user_input,
     }
 
     /*
-     * Step 1: Get game context
+     * Step 1: Call LLM Router (TRANSLATE task)
      *
-     * This retrieves the conversation history so the LLM knows what's
-     * happened in the game recently.
-     */
-    char *context_buffer = malloc(CONTEXT_BUFFER_SIZE);
-    if (!context_buffer) {
-        fprintf(stderr, "Error: Out of memory for context\n");
-        goto fallback;
-    }
-
-    if (context_get_formatted(context_buffer, CONTEXT_BUFFER_SIZE) != 0) {
-        fprintf(stderr, "Warning: Could not get context\n");
-        context_buffer[0] = '\0'; /* Use empty context */
-    }
-
-    /*
-     * Step 2: Format prompts
+     * The router handles:
+     * - Mode detection (multi-agent vs unified)
+     * - Endpoint selection (translator endpoint in multi-agent mode)
+     * - Prompt loading (from config files)
+     * - API communication
      *
-     * This creates the messages we'll send to the LLM:
-     * - System prompt: Defines the LLM's role
-     * - User prompt: Contains context + user input
-     */
-    const char *system_prompt = prompt_loader_get_system_prompt();
-
-    char *user_prompt = malloc(PROMPT_BUFFER_SIZE);
-    if (!user_prompt) {
-        fprintf(stderr, "Error: Out of memory for prompt\n");
-        free(context_buffer);
-        goto fallback;
-    }
-
-    if (prompt_loader_format_user_prompt(context_buffer, user_input,
-                                          user_prompt, PROMPT_BUFFER_SIZE) != 0) {
-        fprintf(stderr, "Error: Could not format user prompt\n");
-        free(context_buffer);
-        free(user_prompt);
-        goto fallback;
-    }
-
-    free(context_buffer); /* Done with context */
-
-    /*
-     * Step 3: Call LLM API
-     *
-     * This makes the HTTP request to translate natural language to commands.
-     * If it fails, we fall back to the original input.
+     * Much simpler than the old approach!
      */
     char llm_response[COMMAND_BUFFER_SIZE];
-    if (llm_client_translate(system_prompt, user_prompt, llm_response,
-                              sizeof(llm_response), 0) != 0) {
+    if (llm_router_request(LLM_TASK_TRANSLATE, user_input, llm_response,
+                            sizeof(llm_response)) != 0) {
         fprintf(stderr, "Warning: LLM translation failed: %s\n",
-                llm_client_get_last_error());
-        free(user_prompt);
+                llm_router_get_last_error());
         goto fallback;
     }
-
-    free(user_prompt); /* Done with prompt */
 
     /* Check if response is empty */
     if (llm_response[0] == '\0') {
@@ -289,6 +254,7 @@ void translator_shutdown(void) {
     fprintf(stderr, "==============================\n\n");
 
     /* Shutdown subsystems (in reverse order of initialization) */
+    llm_router_shutdown();
     llm_client_shutdown();
     prompt_loader_shutdown();
     output_capture_shutdown();

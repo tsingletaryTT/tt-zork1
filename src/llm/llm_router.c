@@ -91,6 +91,7 @@ static RouterConfig g_router_config = {0};
 static int parse_config_file(const char *config_file);
 static int load_endpoint_prompts(void);
 static int load_prompt_from_file(const char *filename, char *buffer, size_t buffer_size);
+static void extract_command(const char *llm_response, char *output, size_t output_size);
 static int route_multi_agent(LLMTaskType task, const char *input,
                                char *output, size_t output_size);
 static int route_unified(LLMTaskType task, const char *input,
@@ -123,6 +124,17 @@ int llm_router_init(const char *config_file) {
         set_error("No valid mode found in configuration");
         return -1;
     }
+
+    /* Debug: Show configured endpoints */
+    #ifdef DEBUG_ROUTER
+    fprintf(stderr, "[Router Debug] Mode: %s\n", llm_router_mode_to_string(g_router_config.mode));
+    for (int i = 0; i < 4; i++) {
+        if (g_router_config.endpoints[i].configured) {
+            fprintf(stderr, "[Router Debug] Endpoint %d: %s (model: %s)\n",
+                    i, g_router_config.endpoints[i].url, g_router_config.endpoints[i].model);
+        }
+    }
+    #endif
 
     /* Load prompts for configured endpoints */
     if (load_endpoint_prompts() != 0) {
@@ -284,6 +296,12 @@ static int parse_config_file(const char *config_file) {
     int in_endpoints = 0;
 
     while (fgets(line, sizeof(line), f)) {
+        /* Check indentation BEFORE trimming */
+        int indent_level = 0;
+        while (line[indent_level] == ' ') {
+            indent_level++;
+        }
+
         char *trimmed = trim_whitespace(line);
 
         /* Skip empty lines and comments */
@@ -304,8 +322,8 @@ static int parse_config_file(const char *config_file) {
             continue;
         }
 
-        /* Parse endpoint entries */
-        if (in_endpoints && strstr(trimmed, ":") && !strstr(trimmed, "  ")) {
+        /* Parse endpoint entries (2 spaces indent) */
+        if (in_endpoints && indent_level == 2 && strstr(trimmed, ":")) {
             /* New endpoint name (translator:, artist:, etc.) */
             char *colon = strchr(trimmed, ':');
             if (colon) {
@@ -315,8 +333,8 @@ static int parse_config_file(const char *config_file) {
             continue;
         }
 
-        /* Parse endpoint properties */
-        if (in_endpoints && current_endpoint[0] != '\0') {
+        /* Parse endpoint properties (4 spaces indent) */
+        if (in_endpoints && indent_level == 4 && current_endpoint[0] != '\0') {
             /* Determine which endpoint to configure */
             EndpointConfig *ep = NULL;
             LLMTaskType task_idx = -1;
@@ -395,6 +413,57 @@ static int load_prompt_from_file(const char *filename, char *buffer, size_t buff
 }
 
 /**
+ * Extract command from LLM response (handles <think> tags)
+ */
+static void extract_command(const char *llm_response, char *output, size_t output_size) {
+    /* Look for </think> tag */
+    const char *think_end = strstr(llm_response, "</think>");
+
+    if (think_end) {
+        /* Skip past the </think> tag */
+        const char *command_start = think_end + strlen("</think>");
+
+        /* Skip whitespace and punctuation */
+        while (*command_start && (isspace((unsigned char)*command_start) ||
+                                   ispunct((unsigned char)*command_start))) {
+            command_start++;
+        }
+
+        /* Copy command to output */
+        strncpy(output, command_start, output_size - 1);
+        output[output_size - 1] = '\0';
+
+        /* Trim trailing whitespace and punctuation */
+        char *end = output + strlen(output) - 1;
+        while (end > output && (isspace((unsigned char)*end) ||
+                                 ispunct((unsigned char)*end))) {
+            *end = '\0';
+            end--;
+        }
+    } else {
+        /* No think tag, clean up anyway */
+        const char *start = llm_response;
+
+        /* Skip leading whitespace and punctuation */
+        while (*start && (isspace((unsigned char)*start) ||
+                           ispunct((unsigned char)*start))) {
+            start++;
+        }
+
+        strncpy(output, start, output_size - 1);
+        output[output_size - 1] = '\0';
+
+        /* Trim trailing whitespace and punctuation */
+        char *end = output + strlen(output) - 1;
+        while (end > output && (isspace((unsigned char)*end) ||
+                                 ispunct((unsigned char)*end))) {
+            *end = '\0';
+            end--;
+        }
+    }
+}
+
+/**
  * Load prompts for all configured endpoints
  */
 static int load_endpoint_prompts(void) {
@@ -458,13 +527,32 @@ static int route_multi_agent(LLMTaskType task, const char *input,
         strncpy(old_url, env_url, sizeof(old_url) - 1);
     }
 
-    /* Set endpoint-specific URL */
+    /* Set endpoint-specific URL and model */
     setenv("ZORK_LLM_URL", ep->url, 1);
     setenv("ZORK_LLM_MODEL", ep->model, 1);
 
+    /* Reinitialize client with new env vars */
+    llm_client_shutdown();
+    if (llm_client_init() != 0) {
+        set_error("Failed to initialize LLM client for endpoint");
+        return -1;
+    }
+
     /* Make API call with endpoint's prompt */
+    char raw_response[output_size];
     int result = llm_client_translate(ep->cached_prompt, input,
-                                       output, output_size, 0);
+                                       raw_response, sizeof(raw_response), 0);
+
+    if (result != 0) {
+        /* Copy error from client to router */
+        const char *client_error = llm_client_get_last_error();
+        if (client_error && client_error[0]) {
+            set_error(client_error);
+        }
+    } else {
+        /* Extract command from response (handles <think> tags) */
+        extract_command(raw_response, output, output_size);
+    }
 
     /* Restore original URL */
     if (env_url) {
