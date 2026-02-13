@@ -62,7 +62,15 @@ if ! curl -s --max-time 2 http://localhost:$PORT/health > /dev/null 2>&1; then
   exit 1
 fi
 
+# Get actual model name
+MODEL_NAME=$(curl -s --max-time 2 http://localhost:$PORT/v1/models 2>/dev/null | jq -r '.data[0].id' 2>/dev/null)
+if [ -z "$MODEL_NAME" ] || [ "$MODEL_NAME" = "null" ]; then
+  echo "ERROR: Could not determine model name from port $PORT"
+  exit 1
+fi
+
 echo "Testing: $TEST_INPUT"
+echo "Model: $MODEL_NAME"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
@@ -91,7 +99,7 @@ for i in "${!VARIANTS[@]}"; do
   response=$(curl -s --max-time 10 http://localhost:$PORT/v1/chat/completions \
     -H "Content-Type: application/json" \
     -d "{
-      \"model\": \"Qwen3-0.6B\",
+      \"model\": \"$MODEL_NAME\",
       \"messages\": [
         {\"role\": \"system\", \"content\": $(echo "$system_prompt" | jq -Rs .)},
         {\"role\": \"user\", \"content\": $(echo "$TEST_INPUT" | jq -Rs .)}

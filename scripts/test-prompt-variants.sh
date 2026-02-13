@@ -39,9 +39,17 @@ test_translator() {
   local max_tokens=$3
   local temperature=$4
 
+  # Get model name
+  local model_name=$(curl -s --max-time 2 http://localhost:8000/v1/models 2>/dev/null | jq -r '.data[0].id' 2>/dev/null)
+  if [ -z "$model_name" ] || [ "$model_name" = "null" ]; then
+    echo "  ERROR: Could not get model name from port 8000"
+    return 1
+  fi
+
   echo "Testing Translator variant: $variant"
   echo "  Prompt: $prompt_file"
   echo "  Max tokens: $max_tokens, Temperature: $temperature"
+  echo "  Model: $model_name"
   echo ""
 
   local results_file="$RESULTS_DIR/translator_${variant}.txt"
@@ -63,7 +71,7 @@ test_translator() {
     local response=$(curl -s --max-time 10 http://localhost:8000/v1/chat/completions \
       -H "Content-Type: application/json" \
       -d "{
-        \"model\": \"Qwen3-0.6B\",
+        \"model\": \"$model_name\",
         \"messages\": [
           {\"role\": \"system\", \"content\": $(echo "$system_prompt" | jq -Rs .)},
           {\"role\": \"user\", \"content\": $(echo "$input" | jq -Rs .)}
@@ -99,9 +107,17 @@ test_artist() {
   local max_tokens=$3
   local temperature=$4
 
+  # Get model name
+  local model_name=$(curl -s --max-time 2 http://localhost:8001/v1/models 2>/dev/null | jq -r '.data[0].id' 2>/dev/null)
+  if [ -z "$model_name" ] || [ "$model_name" = "null" ]; then
+    echo "  ERROR: Could not get model name from port 8001"
+    return 1
+  fi
+
   echo "Testing Artist variant: $variant"
   echo "  Prompt: $prompt_file"
   echo "  Max tokens: $max_tokens, Temperature: $temperature"
+  echo "  Model: $model_name"
   echo ""
 
   local results_file="$RESULTS_DIR/artist_${variant}.txt"
@@ -129,7 +145,7 @@ test_artist() {
     local response=$(curl -s --max-time 15 http://localhost:8001/v1/chat/completions \
       -H "Content-Type: application/json" \
       -d "{
-        \"model\": \"Qwen3-0.6B\",
+        \"model\": \"$model_name\",
         \"messages\": [
           {\"role\": \"system\", \"content\": $(echo "$system_prompt" | jq -Rs .)},
           {\"role\": \"user\", \"content\": \"Generate ASCII art\"}

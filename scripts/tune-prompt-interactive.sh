@@ -71,6 +71,16 @@ if ! curl -s --max-time 2 http://localhost:$PORT/health > /dev/null 2>&1; then
   exit 1
 fi
 
+# Get actual model name
+MODEL_NAME=$(curl -s --max-time 2 http://localhost:$PORT/v1/models 2>/dev/null | jq -r '.data[0].id' 2>/dev/null)
+if [ -z "$MODEL_NAME" ] || [ "$MODEL_NAME" = "null" ]; then
+  echo -e "${RED}ERROR: Could not determine model name${NC}"
+  exit 1
+fi
+
+echo "Model: $MODEL_NAME"
+echo ""
+
 # Load current settings
 PROMPT_FILE=$DEFAULT_PROMPT
 MAX_TOKENS=$DEFAULT_MAX_TOKENS
@@ -122,7 +132,7 @@ while true; do
       RESPONSE=$(curl -s --max-time 10 http://localhost:$PORT/v1/chat/completions \
         -H "Content-Type: application/json" \
         -d "{
-          \"model\": \"Qwen3-0.6B\",
+          \"model\": \"$MODEL_NAME\",
           \"messages\": [
             {\"role\": \"system\", \"content\": $(echo "$SYSTEM_PROMPT" | jq -Rs .)},
             {\"role\": \"user\", \"content\": $(echo "$args" | jq -Rs .)}

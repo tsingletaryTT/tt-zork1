@@ -4,6 +4,12 @@
 echo "🧪 Testing 4-LLM Architecture Endpoints"
 echo ""
 
+# Function to get model name from a server
+get_model_name() {
+  local port=$1
+  curl -s --max-time 2 http://localhost:$port/v1/models 2>/dev/null | jq -r '.data[0].id' 2>/dev/null
+}
+
 # Test function
 test_llm() {
   local name=$1
@@ -20,11 +26,18 @@ test_llm() {
 
   echo "  ✓ Health check passed"
 
+  # Get actual model name
+  model_name=$(get_model_name $port)
+  if [ -z "$model_name" ] || [ "$model_name" = "null" ]; then
+    echo "  ❌ Could not determine model name"
+    return 1
+  fi
+
   # Actual inference request
   response=$(curl -s --max-time 10 http://localhost:$port/v1/chat/completions \
     -H "Content-Type: application/json" \
     -d "{
-      \"model\": \"Qwen3-0.6B\",
+      \"model\": \"$model_name\",
       \"messages\": [{\"role\": \"user\", \"content\": \"$prompt\"}],
       \"max_tokens\": 50,
       \"temperature\": 0.7
