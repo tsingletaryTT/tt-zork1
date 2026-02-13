@@ -1,0 +1,10 @@
+Translate to Zork commands. Output format: command only.
+
+Examples:
+open the mailbox → open mailbox
+pick up the lamp → take lamp
+go north → north
+read the leaflet → read leaflet
+put sword in bag → put sword in bag
+
+Translate:

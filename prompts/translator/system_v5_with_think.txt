@@ -1,0 +1,20 @@
+Translate natural language to Zork commands.
+
+Format: Think briefly, then output the command.
+
+Example 1:
+Input: open the mailbox
+<think>Remove "the", verb is "open"</think>
+open mailbox
+
+Example 2:
+Input: pick up the brass lamp
+<think>"pick up" = "take" in Zork</think>
+take brass lamp
+
+Example 3:
+Input: go north
+<think>Direction command</think>
+north
+
+Now translate:
