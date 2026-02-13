@@ -1,0 +1,186 @@
+# LLM Architecture Configuration for Zork
+# Supports arbitrary chip/model allocations
+
+# ============================================================================
+# PRESET 1: Multi-Agent (4x Qwen3-0.6B, one per chip)
+# ============================================================================
+#mode: multi_agent
+#
+#endpoints:
+#  translator:
+#    url: http://localhost:8000/v1/chat/completions
+#    model: /home/ttuser/models/Qwen3-0.6B
+#    chips: [0]        # Single chip
+#    max_tokens: 500
+#    temperature: 0.1
+#    prompt_file: prompts/translator/system_v5_with_think.txt
+#
+#  artist:
+#    url: http://localhost:8001/v1/chat/completions
+#    model: /home/ttuser/models/Qwen3-0.6B
+#    chips: [1]
+#    max_tokens: 500
+#    temperature: 0.8
+#    prompt_file: prompts/artist/system_v2_atmospheric.txt
+#
+#  dm:
+#    url: http://localhost:8002/v1/chat/completions
+#    model: /home/ttuser/models/Qwen3-0.6B
+#    chips: [2]
+#    max_tokens: 500
+#    temperature: 0.9
+#    prompt_file: prompts/dm/system_v2_dramatic.txt
+#
+#  player:
+#    url: http://localhost:8003/v1/chat/completions
+#    model: /home/ttuser/models/Qwen3-0.6B
+#    chips: [3]
+#    max_tokens: 500
+#    temperature: 0.7
+#    prompt_file: prompts/player/system_v2_strategic.txt
+
+# ============================================================================
+# PRESET 2: Unified (1x Qwen3-32B, tensor parallel across all chips)
+# ============================================================================
+#mode: unified
+#
+#endpoints:
+#  all_tasks:
+#    url: http://localhost:9000/v1/chat/completions
+#    model: /home/ttuser/models/Qwen3-32B
+#    chips: [0, 1, 2, 3]  # Tensor parallel
+#    max_tokens: 1000
+#    temperature: 0.7
+#
+#    # Role-specific prompts (prefixed to requests)
+#    roles:
+#      translator: prompts/unified/translator_role.txt
+#      artist: prompts/unified/artist_role.txt
+#      dm: prompts/unified/dm_role.txt
+#      player: prompts/unified/player_role.txt
+
+# ============================================================================
+# PRESET 3: Hybrid Text + Image (2 chips Qwen, 2 chips SDXL)
+# ============================================================================
+mode: hybrid_image
+
+endpoints:
+  # Text tasks on chips 0-1
+  translator:
+    url: http://localhost:8000/v1/chat/completions
+    model: /home/ttuser/models/Qwen3-8B
+    chips: [0, 1]       # 2-chip tensor parallel for better quality
+    max_tokens: 500
+    temperature: 0.1
+    prompt_file: prompts/translator/system_v5_with_think.txt
+
+  # Image generation on chips 2-3
+  artist:
+    url: http://localhost:8100/v1/images/generations  # Different API!
+    model: /home/ttuser/models/sdxl-turbo
+    chips: [2, 3]       # 2-chip for SDXL
+    type: image         # Not text completion!
+    prompt_file: prompts/artist/sdxl_zork_style.txt
+    output_format: ascii_art_description  # Convert image to ASCII
+
+  # DM also uses the 2-chip Qwen (shared)
+  dm:
+    url: http://localhost:8000/v1/chat/completions  # Same as translator
+    model: /home/ttuser/models/Qwen3-8B
+    chips: [0, 1]       # Shares chips with translator
+    max_tokens: 500
+    temperature: 0.9
+    prompt_file: prompts/dm/system_v2_dramatic.txt
+
+  # AI player uses translator endpoint (shared)
+  player:
+    url: http://localhost:8000/v1/chat/completions
+    model: /home/ttuser/models/Qwen3-8B
+    chips: [0, 1]       # Shares chips
+    max_tokens: 500
+    temperature: 0.7
+    prompt_file: prompts/player/system_v2_strategic.txt
+
+# ============================================================================
+# PRESET 4: Cost-Optimized (Minimal resources)
+# ============================================================================
+#mode: minimal
+#
+#endpoints:
+#  # All tasks share one small model on chip 0
+#  all_tasks:
+#    url: http://localhost:8000/v1/chat/completions
+#    model: /home/ttuser/models/Qwen3-0.6B
+#    chips: [0]        # Only use one chip
+#    max_tokens: 500
+#    temperature: 0.5
+#
+#    roles:
+#      translator: prompts/unified/translator_role.txt
+#      artist: prompts/unified/artist_role.txt
+#      dm: prompts/unified/dm_role.txt
+#      player: prompts/unified/player_role.txt
+
+# ============================================================================
+# PRESET 5: Research (Mixed models, different per task)
+# ============================================================================
+#mode: research
+#
+#endpoints:
+#  translator:
+#    url: http://localhost:8000/v1/chat/completions
+#    model: /home/ttuser/models/Qwen3-0.6B  # Fast for simple task
+#    chips: [0]
+#    max_tokens: 200
+#    temperature: 0.1
+#
+#  artist:
+#    url: http://localhost:8001/v1/chat/completions
+#    model: /home/ttuser/models/Llama-3.1-8B  # Different model!
+#    chips: [1]
+#    max_tokens: 600
+#    temperature: 0.8
+#
+#  dm:
+#    url: http://localhost:8002/v1/chat/completions
+#    model: /home/ttuser/models/Qwen3-32B  # Large for creativity
+#    chips: [2, 3]      # 2 chips, tensor parallel
+#    max_tokens: 800
+#    temperature: 1.0
+#
+#  player:
+#    url: http://localhost:8000/v1/chat/completions  # Share with translator
+#    model: /home/ttuser/models/Qwen3-0.6B
+#    chips: [0]
+#    max_tokens: 300
+#    temperature: 0.7
+
+# ============================================================================
+# Configuration Guide
+# ============================================================================
+#
+# Chip Allocation:
+# - chips: [0]           → Single chip (fastest startup)
+# - chips: [0, 1]        → Tensor parallel (better quality)
+# - chips: [0, 1, 2, 3]  → 4-chip parallel (best quality)
+#
+# Sharing Endpoints:
+# - Multiple tasks can share same URL (sequential requests)
+# - Good for cost savings when not all tasks run simultaneously
+#
+# Endpoint Types:
+# - type: text (default)      → Text completion API
+# - type: image               → Image generation API
+# - type: embedding           → Embedding API
+#
+# Temperature Guide:
+# - 0.0-0.2  → Deterministic (translation, facts)
+# - 0.3-0.7  → Balanced (strategy, decisions)
+# - 0.8-1.2  → Creative (art, storytelling)
+#
+# Max Tokens Guide:
+# - 200-300  → Short responses (commands)
+# - 500-600  → Medium (with thinking)
+# - 800-1000 → Long (complex reasoning, art)
+#
+# ============================================================================
