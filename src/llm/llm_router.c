@@ -41,7 +41,6 @@
 
 #include "llm_router.h"
 #include "llm_client.h"
-#include "prompt_loader.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -91,6 +90,7 @@ static RouterConfig g_router_config = {0};
 /* Forward declarations */
 static int parse_config_file(const char *config_file);
 static int load_endpoint_prompts(void);
+static int load_prompt_from_file(const char *filename, char *buffer, size_t buffer_size);
 static int route_multi_agent(LLMTaskType task, const char *input,
                                char *output, size_t output_size);
 static int route_unified(LLMTaskType task, const char *input,
@@ -379,6 +379,22 @@ static int parse_config_file(const char *config_file) {
 }
 
 /**
+ * Load prompt from file
+ */
+static int load_prompt_from_file(const char *filename, char *buffer, size_t buffer_size) {
+    FILE *f = fopen(filename, "r");
+    if (!f) {
+        return -1;
+    }
+
+    size_t bytes_read = fread(buffer, 1, buffer_size - 1, f);
+    buffer[bytes_read] = '\0';
+    fclose(f);
+
+    return 0;
+}
+
+/**
  * Load prompts for all configured endpoints
  */
 static int load_endpoint_prompts(void) {
@@ -390,9 +406,9 @@ static int load_endpoint_prompts(void) {
         for (int i = 0; i < 4; i++) {
             EndpointConfig *ep = &g_router_config.endpoints[i];
             if (ep->configured && ep->prompt_file[0] != '\0') {
-                if (prompt_loader_load(ep->prompt_file,
-                                        ep->cached_prompt,
-                                        sizeof(ep->cached_prompt)) != 0) {
+                if (load_prompt_from_file(ep->prompt_file,
+                                          ep->cached_prompt,
+                                          sizeof(ep->cached_prompt)) != 0) {
                     char error[256];
                     snprintf(error, sizeof(error),
                              "Failed to load prompt: %s", ep->prompt_file);
@@ -409,9 +425,9 @@ static int load_endpoint_prompts(void) {
 
         EndpointConfig *ep = &g_router_config.unified_endpoint;
         if (ep->configured && ep->prompt_file[0] != '\0') {
-            if (prompt_loader_load(ep->prompt_file,
-                                    ep->cached_prompt,
-                                    sizeof(ep->cached_prompt)) != 0) {
+            if (load_prompt_from_file(ep->prompt_file,
+                                      ep->cached_prompt,
+                                      sizeof(ep->cached_prompt)) != 0) {
                 set_error("Failed to load unified prompt");
                 return -1;
             }
