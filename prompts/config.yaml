@@ -1,0 +1,190 @@
+# LLM Configuration for 4-Chip Zork Architecture
+#
+# This file defines different prompt variants and parameters to experiment with.
+# Each LLM can be tuned independently for optimal performance.
+
+# Command Translator (Device 0, Port 8000)
+translator:
+  variants:
+    minimal:
+      prompt_file: translator/system_v1_minimal.txt
+      max_tokens: 50
+      temperature: 0.1
+      top_p: 0.9
+      description: "Ultra-concise, fast translation"
+
+    detailed:
+      prompt_file: translator/system_v2_detailed.txt
+      max_tokens: 100
+      temperature: 0.2
+      top_p: 0.95
+      description: "More examples, better accuracy"
+
+    fewshot:
+      prompt_file: translator/system_v3_fewshot.txt
+      max_tokens: 75
+      temperature: 0.15
+      top_p: 0.9
+      description: "Pattern-based learning (recommended)"
+
+  recommended: fewshot
+
+  # Performance targets
+  max_latency_ms: 200
+  cache_enabled: true
+  cache_size: 100
+
+# ASCII Artist (Device 1, Port 8001)
+artist:
+  variants:
+    simple:
+      prompt_file: artist/system_v1_simple.txt
+      max_tokens: 300
+      temperature: 0.7
+      top_p: 0.9
+      description: "Clean, minimal ASCII art"
+
+    atmospheric:
+      prompt_file: artist/system_v2_atmospheric.txt
+      max_tokens: 400
+      temperature: 0.8
+      top_p: 0.95
+      description: "Detailed, moody scenes (recommended)"
+
+  recommended: atmospheric
+
+  # Performance targets
+  max_latency_ms: 1000
+  cache_enabled: true
+  cache_size: 50  # Cache by location
+
+  # Display options
+  display_mode: above  # above | sidebar | on-demand
+  show_on_location_change: true
+
+# Dungeon Master (Device 2, Port 8002)
+dm:
+  variants:
+    subtle:
+      prompt_file: dm/system_v1_subtle.txt
+      max_tokens: 150
+      temperature: 0.8
+      top_p: 0.9
+      description: "Light atmospheric touches"
+
+    dramatic:
+      prompt_file: dm/system_v2_dramatic.txt
+      max_tokens: 300
+      temperature: 0.9
+      top_p: 0.95
+      description: "Rich narrative enhancements"
+
+  recommended: subtle
+
+  # Performance targets
+  max_latency_ms: 1500
+  cache_enabled: false  # Dynamic based on actions
+
+  # Enhancement controls
+  intensity: 0.7  # 0.0 = off, 1.0 = maximum
+  enhance_routine: false  # Only enhance important moments
+  enhance_combat: true
+  enhance_discovery: true
+  enhance_death: true
+
+# AI Player (Device 3, Port 8003)
+player:
+  variants:
+    explorer:
+      prompt_file: player/system_v1_explorer.txt
+      max_tokens: 200
+      temperature: 0.6
+      top_p: 0.9
+      description: "Basic exploration strategy"
+
+    strategic:
+      prompt_file: player/system_v2_strategic.txt
+      max_tokens: 400
+      temperature: 0.7
+      top_p: 0.95
+      description: "Advanced strategic thinking (recommended)"
+
+  recommended: strategic
+
+  # Performance targets
+  max_latency_ms: 2000
+
+  # AI behavior
+  mode: observer  # observer | copilot | autonomous | teaching
+  think_time_ms: 500  # Delay before showing suggestion
+  explain_reasoning: true
+  show_confidence: true
+  show_alternatives: true
+
+# Global settings
+global:
+  # Model configuration
+  model_name: Qwen3-0.6B
+
+  # Request timeouts
+  connection_timeout_ms: 5000
+  request_timeout_ms: 10000
+
+  # Retry logic
+  max_retries: 2
+  retry_delay_ms: 1000
+
+  # Fallback behavior
+  fallback_on_error: true  # Disable LLM on repeated failures
+  fallback_threshold: 3    # Failures before fallback
+
+  # Logging
+  log_requests: true
+  log_responses: false     # Too verbose
+  log_latency: true
+
+  # Statistics
+  track_stats: true
+  stats_interval_sec: 60
+
+# Experiment presets (load complete configurations)
+presets:
+  speed_optimized:
+    description: "Minimize latency, sacrifice quality"
+    translator: minimal
+    artist: simple
+    dm: off
+    player: off
+
+  balanced:
+    description: "Good quality, reasonable speed (recommended)"
+    translator: fewshot
+    artist: atmospheric
+    dm: subtle
+    player: off
+
+  immersive:
+    description: "Maximum quality, slower"
+    translator: fewshot
+    artist: atmospheric
+    dm: dramatic
+    player: strategic
+
+  ai_demo:
+    description: "Showcase AI player capabilities"
+    translator: fewshot
+    artist: atmospheric
+    dm: dramatic
+    player: strategic
+    player_mode: teaching
+
+# Experiment tracking
+experiments:
+  enabled: true
+  log_dir: experiments/
+  track_metrics:
+    - latency_ms
+    - token_count
+    - success_rate
+    - user_satisfaction
+    - fallback_rate

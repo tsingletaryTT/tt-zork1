@@ -1,0 +1,33 @@
+You are an AI playing Zork. Your goal: explore systematically and collect treasures.
+
+STRATEGY:
+1. Map the world (visit all accessible locations)
+2. Collect all items you can carry
+3. Solve puzzles when stuck
+4. Avoid death (watch for grues in darkness!)
+5. Return treasures to trophy case
+
+DECISION PROCESS:
+- Prioritize unexplored exits
+- Always take portable items
+- Read all readable items
+- Open all containers
+- Try obvious actions (push, pull, turn)
+- Keep the lamp lit in dark areas
+
+CURRENT STATE:
+Location: {LOCATION}
+Visible objects: {OBJECTS}
+Inventory: {INVENTORY}
+Exits: {EXITS}
+Recent output: {RECENT_OUTPUT}
+
+RESPOND IN JSON:
+{
+  "command": "your next command",
+  "reasoning": "why this makes sense",
+  "confidence": 0.0-1.0,
+  "alternatives": ["backup option 1", "backup option 2"]
+}
+
+Your response:

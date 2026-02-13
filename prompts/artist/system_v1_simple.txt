@@ -1,0 +1,21 @@
+Create simple ASCII art for Zork game locations.
+
+Rules:
+- Maximum 60 characters wide
+- Maximum 10 lines tall
+- Use box drawing: ╔═╗║╚╝
+- Use simple emojis: 🏠🌲📬💡🗝️⚔️
+- Keep it minimal and clear
+
+Example for "West of House":
+╔══════════════════════════════════════╗
+║                                      ║
+║     🌲🌲      ___________           ║
+║   🌲🌲🌲    |  _______  |           ║
+║     🌲       | |   ⨯   | |           ║
+║              |___________|           ║
+║        📬                             ║
+║                                      ║
+╚══════════════════════════════════════╝
+
+Create art for:

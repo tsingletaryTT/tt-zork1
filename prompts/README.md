@@ -1,179 +1,51 @@
-# Zork LLM Prompts
+# Prompts for 4-Chip Zork Architecture
 
-This directory contains the prompts used by the LLM-backed natural language parser for Zork.
+This directory contains optimized prompts for each of the 4 specialized LLMs.
 
-## Design Philosophy: Let the Game Handle Ambiguity
-
-**Key Principle**: The LLM translates literally. It does NOT try to resolve ambiguity using context.
-
-**Why?** Because Zork already handles ambiguity perfectly:
-```
-> take it
-What do you want to take?
-> the lamp
-Taken.
-```
-
-This is BETTER than having the LLM guess:
-```
-> take it
-[LLM guesses "mailbox" from context]
-Taken.  (Wrong! You wanted the lamp!)
-```
-
-**Our Approach for Small Models (Qwen2.5:0.5b)**:
-- ✅ Context-free translation (no conversation history)
-- ✅ Pure input → command mapping
-- ✅ Let game ask clarifying questions
-- ✅ Clean, predictable, reliable
-- ❌ No smart inference (that's the game's job!)
-
-**Trade-offs**:
-- Pronouns like "take it" will prompt game to ask for clarification
-- Users learn to be more explicit ("take the lamp")
-- More natural dialogue flow (game guides the player)
-- Works reliably with tiny models
-
-## Educational Purpose
-
-**IMPORTANT**: This is an educational project! These prompts are stored as plain text files so you can:
-- Easily read and understand how the LLM is instructed
-- Experiment with different prompting strategies
-- Modify behavior without recompiling the code
-- Learn about prompt engineering for text adventure games
-
-## Files
-
-### `system.txt`
-The **system prompt** that defines the LLM's role and behavior. This is sent once at the beginning of each API call.
-
-**What it does:**
-- Tells the LLM it's a command translator
-- Provides rules for translation
-- Gives examples of good translations
-
-**Prompt engineering tips:**
-- Keep rules concise and numbered for clarity
-- Provide diverse examples covering common patterns
-- Emphasize "output ONLY commands" to avoid chatty responses
-- Use classic Zork command syntax in examples
-
-### `user_template.txt`
-The **user message template** that includes game context and the player's input.
-
-**Placeholders:**
-- `{CONTEXT}` - Replaced with recent game history (last N turns of output and input)
-- `{INPUT}` - Replaced with the user's natural language input
-
-**Prompt engineering tips:**
-- Label sections clearly: `[GAME CONTEXT]`, `[USER INPUT]`
-- Experiment with context length (currently "Last 20 turns")
-- Try different instruction phrasings: "Translate", "Convert", "Output commands for"
-- Add constraints if needed: "Use at most 3 commands"
-
-## How It Works
+## Directory Structure
 
 ```
-1. User types: "I want to go north and open the door"
-
-2. prompt_loader.c reads these files
-
-3. Substitutes placeholders:
-   {CONTEXT} → Recent game output
-   {INPUT} → "I want to go north and open the door"
-
-4. Sends to LLM:
-   System: [Contents of system.txt]
-   User: [Contents of user_template.txt with substitutions]
-
-5. LLM responds: "north, open door"
-
-6. Commands executed in Z-machine
+prompts/
+├── config.yaml                    # Configuration and experiment settings
+├── translator/                    # Command translation prompts
+│   ├── system_v1_minimal.txt     # Ultra-concise (fastest)
+│   ├── system_v2_detailed.txt    # More examples (more accurate)
+│   └── system_v3_fewshot.txt     # Pattern-based (recommended) ⭐
+├── artist/                        # ASCII art generation prompts
+│   ├── system_v1_simple.txt      # Clean minimal art
+│   └── system_v2_atmospheric.txt # Detailed moody art (recommended) ⭐
+├── dm/                            # Dungeon master enhancement prompts
+│   ├── system_v1_subtle.txt      # Light atmospheric touches (recommended) ⭐
+│   └── system_v2_dramatic.txt    # Rich narrative enhancements
+└── player/                        # AI player strategy prompts
+    ├── system_v1_explorer.txt    # Basic exploration strategy
+    └── system_v2_strategic.txt   # Advanced thinking (recommended) ⭐
 ```
 
-## Experimenting
+## Quick Start
 
-Try modifying these prompts to change behavior:
+```bash
+# 1. Test all prompt variants
+./scripts/test-prompt-variants.sh
 
-### Make it more verbose
-```
-User: "walk through the door"
-You: "open door, north, look"
-(Added automatic "look" after movement)
-```
+# 2. Compare variants side-by-side
+./scripts/compare-prompts.sh translator "open the mailbox"
 
-### Add personality
-```
-You are a helpful Zork assistant who translates commands.
-Respond with just the commands, then add a single emoji.
+# 3. Tune interactively
+./scripts/tune-prompt-interactive.sh
 ```
 
-### Stricter parsing
-```
-If the request is impossible or unclear, respond with: "unclear"
-```
+## Recommended Configurations
 
-### Context-aware suggestions
-```
-Based on visible objects in context, suggest taking important items first.
-```
+- **Speed**: minimal translator, simple artist, DM off
+- **Balanced**: fewshot translator, atmospheric artist, subtle DM ⭐
+- **Immersive**: fewshot translator, atmospheric artist, dramatic DM, strategic player
 
-## Technical Details
+See `config.yaml` for full configuration options.
 
-**Loading**: Prompts are loaded at startup by `src/llm/prompt_loader.c`
+## Resources
 
-**Fallback**: If files are missing, built-in default prompts are used
+- **Full Guide**: `docs/PROMPT_ENGINEERING_GUIDE.md`
+- **Architecture**: `docs/FOUR_CHIP_ARCHITECTURE.md`
+- **Testing**: `scripts/test-prompt-variants.sh`
 
-**No recompilation**: Edit these files and restart the game - changes take effect immediately!
-
-## Advanced: Creating Custom Prompts
-
-Want to create a different personality or style?
-
-1. Copy these files:
-   ```bash
-   cp system.txt system_helpful.txt
-   cp system.txt system_terse.txt
-   ```
-
-2. Modify the copies with different instructions
-
-3. Set environment variable to use your custom prompts:
-   ```bash
-   export ZORK_SYSTEM_PROMPT=prompts/system_terse.txt
-   ./zork-native game/zork1.z3
-   ```
-
-## Learning Resources
-
-**Prompt Engineering Basics:**
-- [OpenAI Prompt Engineering Guide](https://platform.openai.com/docs/guides/prompt-engineering)
-- [Anthropic's Guide to Prompting](https://docs.anthropic.com/claude/docs/prompt-engineering)
-
-**Key Concepts:**
-- **System prompt**: Sets the AI's role and behavior
-- **Few-shot learning**: Examples teach the AI the pattern
-- **Temperature**: Lower = more consistent, Higher = more creative (set in API call)
-- **Context window**: How much history the AI can see (we send ~20 turns)
-
-**Experiment and Learn:**
-The best way to understand prompting is to try it! Modify these files, play the game, and see what happens. That's the whole point of making them editable text files.
-
-## Troubleshooting
-
-**LLM gives wrong commands:**
-- Add more examples to `system.txt` covering that case
-- Check if game context in `user_template.txt` is sufficient
-- Try being more explicit in the rules
-
-**LLM is too chatty:**
-- Emphasize "output ONLY commands" in system prompt
-- Add negative examples: "Don't say 'Here are the commands:' "
-- Try stronger language: "You MUST output only commands, no other text"
-
-**LLM misses context clues:**
-- Increase context length in user template
-- Explicitly tell LLM to "read the game context carefully"
-- Add instruction: "Use object names visible in the context"
-
-Have fun experimenting! 🎮

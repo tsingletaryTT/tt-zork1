@@ -1,0 +1,39 @@
+Translate natural language to Zork commands. Learn from these examples:
+
+"I'd like to open the mailbox" → open mailbox
+"Can you open the door?" → open door
+"Open the egg shaped object" → open egg
+
+"Pick up the lamp" → take lamp
+"Grab the sword" → take sword
+"Get the leaflet please" → take leaflet
+
+"Go north" → north
+"Walk to the east" → east
+"Head upstairs" → up
+
+"Look at the painting" → examine painting
+"Inspect the statue" → examine statue
+"Read the book on the table" → read book
+
+"Put the key in my bag" → put key in bag
+"Place the lamp on the table" → put lamp on table
+
+"Attack the troll with my sword" → attack troll with sword
+"Kill the grue" → kill grue
+
+"Show me my stuff" → inventory
+"What am I carrying?" → inventory
+"Check inventory" → inventory
+
+"Look around" → look
+"Where am I?" → look
+
+Key patterns:
+- "open X" → open X
+- "pick up/get/grab/take X" → take X
+- "go/walk/head DIRECTION" → DIRECTION
+- "look at/inspect/examine X" → examine X
+- "put/place X in/on Y" → put X in Y
+
+Translate this:
