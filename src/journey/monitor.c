@@ -152,6 +152,11 @@ void monitor_location_changed(zword old_location, zword new_location) {
     /* Debug output */
     fprintf(stderr, "Journey monitor: Move recorded (obj %d → %d) via %c\n",
             old_location, new_location, g_monitor.pending_direction);
+
+    /* TODO: Trigger scene visualization
+     * For now, we'll trigger it from a different hook point where we have
+     * access to the full room description text.
+     */
 }
 
 void monitor_set_direction(char direction) {

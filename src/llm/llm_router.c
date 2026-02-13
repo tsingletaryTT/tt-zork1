@@ -413,7 +413,7 @@ static int load_prompt_from_file(const char *filename, char *buffer, size_t buff
 }
 
 /**
- * Extract command from LLM response (handles <think> tags)
+ * Extract command from LLM response (handles <think> tags and verbose thinking)
  */
 static void extract_command(const char *llm_response, char *output, size_t output_size) {
     /* Look for </think> tag */
@@ -441,13 +441,28 @@ static void extract_command(const char *llm_response, char *output, size_t outpu
             end--;
         }
     } else {
-        /* No think tag, clean up anyway */
+        /* No think tag - look for other thinking patterns */
         const char *start = llm_response;
 
-        /* Skip leading whitespace and punctuation */
+        /* Skip "think>" or "think>," patterns */
+        if (strstr(start, "think>")) {
+            start = strstr(start, "think>") + 6;
+        }
+
+        /* Skip leading whitespace, punctuation, and commas */
         while (*start && (isspace((unsigned char)*start) ||
-                           ispunct((unsigned char)*start))) {
+                           *start == ',' || *start == '.')) {
             start++;
+        }
+
+        /* If it starts with "Okay" or similar thinking text, skip the whole first sentence */
+        if (strncmp(start, "Okay", 4) == 0 ||
+            strncmp(start, "Let", 3) == 0 ||
+            strncmp(start, "First", 5) == 0) {
+            /* For artists generating multi-line output, just return empty for now */
+            /* This avoids showing the verbose thinking */
+            output[0] = '\0';
+            return;
         }
 
         strncpy(output, start, output_size - 1);
@@ -550,8 +565,15 @@ static int route_multi_agent(LLMTaskType task, const char *input,
             set_error(client_error);
         }
     } else {
-        /* Extract command from response (handles <think> tags) */
-        extract_command(raw_response, output, output_size);
+        /* For single-line commands (translate, autoplay), extract command
+         * For multi-line output (visualize, narrate), use full response */
+        if (task == LLM_TASK_TRANSLATE || task == LLM_TASK_AUTOPLAY) {
+            extract_command(raw_response, output, output_size);
+        } else {
+            /* Use full response for ASCII art and narrative text */
+            strncpy(output, raw_response, output_size - 1);
+            output[output_size - 1] = '\0';
+        }
     }
 
     /* Restore original URL */

@@ -1,0 +1,26 @@
+Generate ASCII art for game locations. Output ONLY the art, nothing else.
+
+Format: 6-8 lines, 50-60 chars wide, simple and atmospheric.
+
+Example 1:
+Location: Forest
+           🌲🌳    🌲
+      🌲🌳🌲   🌲🌳
+    🌳🌲🌳🌲  🌲🌳🌲
+      🍄  🦌  🍄
+
+Example 2:
+Location: Cave entrance
+        ╔══╗
+      ╔═╝  ╚═╗
+    ╔═╝ ⛰️  ╚═╗
+    ║  🕯️💀   ║
+
+Example 3:
+Location: House
+      🏚️
+     /🏠\
+    🏠🏠🏠
+     📬
+
+Now generate art for:

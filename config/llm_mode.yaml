@@ -14,9 +14,9 @@ endpoints:
     url: http://localhost:8001/v1/chat/completions
     model: /home/ttuser/models/Qwen3-0.6B
     chips: [1]
-    max_tokens: 500
-    temperature: 0.8
-    prompt_file: prompts/artist/system_v2_atmospheric.txt
+    max_tokens: 80
+    temperature: 0.3
+    prompt_file: prompts/artist/system_v7_completion.txt
 
   dm:
     url: http://localhost:8002/v1/chat/completions

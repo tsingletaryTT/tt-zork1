@@ -1,0 +1,23 @@
+Output ONLY ASCII art. No explanations. No thinking. Just art.
+
+Format: 6-8 lines, simple symbols
+
+Forest:
+   🌲🌳    🌲
+ 🌲🌳🌲   🌲🌳
+🌳🌲🌳🌲  🌲🌳🌲
+   🍄  🦌  🍄
+
+Cave:
+    ╔══╗
+  ╔═╝  ╚═╗
+╔═╝ ⛰️  ╚═╗
+║  🕯️💀   ║
+
+House:
+   🏚️
+  /🏠\
+ 🏠🏠🏠
+  📬
+
+Now for:
