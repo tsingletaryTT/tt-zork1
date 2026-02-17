@@ -73,11 +73,49 @@ int scene_visualizer_generate(const char *location_name, const char *description
     snprintf(prompt, sizeof(prompt), "%s:", location_name);
 
     /* Call artist via router */
-    char art[ART_BUFFER_SIZE];
-    if (llm_router_request(LLM_TASK_VISUALIZE, prompt, art, sizeof(art)) != 0) {
+    char raw_response[ART_BUFFER_SIZE];
+    if (llm_router_request(LLM_TASK_VISUALIZE, prompt, raw_response, sizeof(raw_response)) != 0) {
         fprintf(stderr, "Warning: Failed to generate art for %s: %s\n",
                 location_name, llm_router_get_last_error());
         return -1;
+    }
+
+    /* Extract art from JSON response if present */
+    char art[ART_BUFFER_SIZE];
+    const char *art_start = strstr(raw_response, "\"art\":");
+    if (art_start) {
+        /* Find the opening quote after "art": */
+        art_start = strchr(art_start + 6, '"');
+        if (art_start) {
+            art_start++; /* Skip opening quote */
+            const char *art_end = strchr(art_start, '"');
+            if (art_end) {
+                size_t len = art_end - art_start;
+                if (len < sizeof(art)) {
+                    strncpy(art, art_start, len);
+                    art[len] = '\0';
+                    /* Replace \\n with actual newlines */
+                    char *pos = art;
+                    while ((pos = strstr(pos, "\\n")) != NULL) {
+                        *pos = '\n';
+                        memmove(pos + 1, pos + 2, strlen(pos + 2) + 1);
+                    }
+                } else {
+                    strcpy(art, "Art too large");
+                }
+            } else {
+                /* No JSON, use raw response */
+                strncpy(art, raw_response, sizeof(art) - 1);
+                art[sizeof(art) - 1] = '\0';
+            }
+        } else {
+            strncpy(art, raw_response, sizeof(art) - 1);
+            art[sizeof(art) - 1] = '\0';
+        }
+    } else {
+        /* No JSON structure, use raw response */
+        strncpy(art, raw_response, sizeof(art) - 1);
+        art[sizeof(art) - 1] = '\0';
     }
 
     /* Display art in a bordered box */

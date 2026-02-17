@@ -12,11 +12,11 @@ endpoints:
 
   artist:
     url: http://localhost:8001/v1/chat/completions
-    model: /home/ttuser/models/Qwen3-0.6B
+    model: Llama-3.2-1B-Instruct
     chips: [1]
-    max_tokens: 80
+    max_tokens: 150
     temperature: 0.3
-    prompt_file: prompts/artist/system_v7_completion.txt
+    prompt_file: prompts/artist/system_v8_structured.txt
 
   dm:
     url: http://localhost:8002/v1/chat/completions
