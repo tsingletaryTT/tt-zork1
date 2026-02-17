@@ -1,0 +1,62 @@
+# Zork I - Command Vocabulary & Objects
+# This knowledge base helps agents understand Zork-specific language
+
+## Common Zork Commands
+- INVENTORY (I) - Check what you're carrying
+- EXAMINE (X, LOOK AT) - Inspect objects closely
+- TAKE (GET) - Pick up an object
+- DROP - Put down an object
+- OPEN - Open containers or doors
+- CLOSE - Close containers or doors
+- READ - Read text on objects
+- TURN ON/OFF - Activate/deactivate light sources
+- LIGHT - Light lamps or candles with matches
+- CLIMB - Climb ladders or ropes
+- WAVE - Wave magical items
+- BLOW - Blow whistles or horns
+
+## Directional Commands
+- NORTH (N), SOUTH (S), EAST (E), WEST (W)
+- NORTHEAST (NE), NORTHWEST (NW), SOUTHEAST (SE), SOUTHWEST (SW)
+- UP (U), DOWN (D)
+- IN, OUT
+- ENTER, EXIT
+
+## Key Zork Objects
+- mailbox - Contains a leaflet at the start
+- leaflet - Welcome message and basic instructions
+- lamp (brass lantern) - Essential light source
+- sword - Weapon for combat
+- rope - Used for climbing
+- trophy case - Where treasures are deposited
+- trap door - Hidden entrance to Underground
+- grating - Another entrance point
+- egg (jewel-encrusted) - Valuable treasure
+- chalice - Valuable treasure
+- coffin - Contains treasures and dangers
+
+## Important Locations
+- West of House - Starting location
+- White House - Main building, contains many rooms
+- Forest - Surrounds the house
+- Cellar - Below the house
+- Living Room - Has trophy case
+- Kitchen - Contains food and tools
+- Attic - Upper level of house
+- Maze - Confusing twisty passages
+- Temple - Underground location
+- Treasure Room - Goal location
+
+## Dangers
+- grue - Deadly creature in darkness (need light!)
+- thief - Steals treasures
+- troll - Blocks bridges
+- cyclops - Guards certain areas
+- falling - In deep locations
+
+## Survival Tips
+- NEVER go in darkness without a light source
+- The lamp has limited battery - conserve it
+- Save treasures for the trophy case
+- Map the maze carefully (all alike = maze)
+- Some puzzles require specific item combinations
