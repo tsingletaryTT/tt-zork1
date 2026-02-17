@@ -24,9 +24,10 @@
 
 #include "dfrotz.h"
 
-/* LLM Translation System & Journey Tracking */
+/* LLM Translation System & Journey Tracking & Slash Commands */
 #ifdef BUILD_NATIVE
 #include "../../../../llm/input_translator.h"
+#include "../../../../llm/slash_commands.h"
 #include "../../../../journey/monitor.h"
 #include "../../../../journey/tracker.h"  /* For DIR_* constants */
 #include "../../../../journey/game_state.h"
@@ -556,6 +557,30 @@ zchar os_read_line (int UNUSED (max), zchar *buf, int timeout, int UNUSED(width)
 	dumb_display_user_input(read_line_buffer);
 
 	/*
+	 * Slash Command Processing
+	 *
+	 * Handle meta-commands like /mode, /play, /help, /status
+	 * These commands control LLM features and gameplay modes.
+	 */
+#ifdef BUILD_NATIVE
+	slash_result_t slash_result = slash_commands_process(read_line_buffer);
+	if (slash_result.handled) {
+		/* Display message from slash command */
+		if (slash_result.message[0] != '\0') {
+			printf("%s\n", slash_result.message);
+		}
+
+		/* If this was a pure meta-command, don't send anything to Z-machine */
+		if (slash_result.should_skip) {
+			/* Return empty input to Z-machine to trigger another prompt */
+			buf[0] = '\0';
+			read_line_buffer[0] = '\0';
+			return terminator;
+		}
+	}
+#endif
+
+	/*
 	 * LLM Translation Integration with Fast-Path Optimization
 	 *
 	 * Strategy:
@@ -571,7 +596,8 @@ zchar os_read_line (int UNUSED (max), zchar *buf, int timeout, int UNUSED(width)
 #ifdef BUILD_NATIVE
 	int needs_translation = 1;  /* Assume we need LLM translation */
 
-	if (translator_is_enabled()) {
+	/* Check if translator should be used based on current mode */
+	if (translator_is_enabled() && slash_commands_use_translator()) {
 		/* Fast-path check: Is this already a valid Zork command?
 		 * Check for common patterns that the Z-machine parser will understand:
 		 * - Single-word directions: north, south, n, s, etc.

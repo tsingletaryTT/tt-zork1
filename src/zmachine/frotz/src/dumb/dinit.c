@@ -24,9 +24,10 @@
 #include "dfrotz.h"
 #include "dblorb.h"
 
-/* LLM Translation System & Journey Tracking */
+/* LLM Translation System & Journey Tracking & Slash Commands */
 #ifdef BUILD_NATIVE
 #include "../../../../llm/input_translator.h"
+#include "../../../../llm/slash_commands.h"
 #include "../../../../journey/monitor.h"
 #include "../../../../journey/tracker.h"
 #include "../../../../journey/game_state.h"
@@ -312,8 +313,12 @@ void os_init_screen(void)
 	dumb_init_output();
 	dumb_init_pictures();
 
-	/* Initialize LLM translation system (if enabled) */
+	/* Initialize LLM systems (if enabled) */
 #ifdef BUILD_NATIVE
+	/* Initialize slash command system (controls all LLM features) */
+	slash_commands_init(MODE_ENHANCED, PLAY_SOLO);
+
+	/* Initialize translator */
 	translator_init();
 
 	/* Initialize journey tracking system */
