@@ -24,10 +24,11 @@
 #include "dfrotz.h"
 #include "dblorb.h"
 
-/* LLM Translation System & Journey Tracking & Slash Commands */
+/* LLM Translation System & Journey Tracking & Slash Commands & Auto Player */
 #ifdef BUILD_NATIVE
 #include "../../../../llm/input_translator.h"
 #include "../../../../llm/slash_commands.h"
+#include "../../../../llm/auto_player.h"
 #include "../../../../journey/monitor.h"
 #include "../../../../journey/tracker.h"
 #include "../../../../journey/game_state.h"
@@ -321,6 +322,12 @@ void os_init_screen(void)
 	/* Initialize translator */
 	translator_init();
 
+	/* Initialize autonomous player (disabled by default until /play auto) */
+	if (auto_player_init(STRATEGY_EXPLORE) != 0) {
+		fprintf(stderr, "Warning: Auto player initialization failed\n");
+		/* Continue anyway - game works without auto player */
+	}
+
 	/* Initialize journey tracking system */
 	if (monitor_init() != 0) {
 		fprintf(stderr, "Warning: Journey tracking initialization failed\n");
@@ -352,9 +359,10 @@ int os_random_seed (void)
  */
 void os_quit(int status)
 {
-	/* Shutdown LLM translation system and print statistics */
+	/* Shutdown LLM systems and print statistics */
 #ifdef BUILD_NATIVE
 	translator_shutdown();
+	auto_player_shutdown();
 
 	/* Check if we should display journey map before quitting */
 	if (game_state_should_show_map()) {

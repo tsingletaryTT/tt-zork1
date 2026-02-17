@@ -24,10 +24,11 @@
 
 #include "dfrotz.h"
 
-/* LLM Translation System & Journey Tracking & Slash Commands */
+/* LLM Translation System & Journey Tracking & Slash Commands & Auto Player */
 #ifdef BUILD_NATIVE
 #include "../../../../llm/input_translator.h"
 #include "../../../../llm/slash_commands.h"
+#include "../../../../llm/auto_player.h"
 #include "../../../../journey/monitor.h"
 #include "../../../../journey/tracker.h"  /* For DIR_* constants */
 #include "../../../../journey/game_state.h"
@@ -576,6 +577,42 @@ zchar os_read_line (int UNUSED (max), zchar *buf, int timeout, int UNUSED(width)
 			buf[0] = '\0';
 			read_line_buffer[0] = '\0';
 			return terminator;
+		}
+	}
+#endif
+
+	/*
+	 * Autonomous Player Integration
+	 *
+	 * If in auto-play mode (/play auto), generate commands using the Player agent.
+	 * The AI observes game output and decides next actions based on its strategy/persona.
+	 *
+	 * Note: For now, we pass a simple placeholder for game state. The full integration
+	 * with output_capture will be added in a future update to provide complete game
+	 * context to the AI.
+	 */
+#ifdef BUILD_NATIVE
+	if (slash_commands_is_auto_play() && auto_player_is_enabled()) {
+		/* TODO: Integrate with output_capture to provide full game context */
+		/* For now, use a simple prompt that tells AI to start exploring */
+		const char *game_state = "You are playing Zork. What do you want to do?";
+
+		/* Generate next command using Player agent (Chip 3) */
+		char ai_command[512];
+		if (auto_player_next_command(game_state, ai_command, sizeof(ai_command)) == 0) {
+			/* AI successfully generated a command */
+			printf("\n[AI Player → %s]\n", ai_command);
+
+			/* Use AI's command as if user typed it */
+			strncpy(read_line_buffer, ai_command, sizeof(read_line_buffer) - 1);
+			read_line_buffer[sizeof(read_line_buffer) - 1] = '\0';
+
+			/* Small delay so user can see what AI is doing */
+			usleep(500000);  /* 0.5 second pause */
+		} else {
+			/* AI failed to generate command - prompt user for manual input */
+			fprintf(stderr, "\n[Auto-play error: Falling back to manual input]\n");
+			/* read_line_buffer already contains user's input from earlier */
 		}
 	}
 #endif
