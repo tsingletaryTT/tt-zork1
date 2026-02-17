@@ -27,14 +27,32 @@
 #ifndef AUTO_PLAYER_H
 #define AUTO_PLAYER_H
 
+#include <stddef.h>
+
 /**
  * Player strategy types
+ *
+ * Original strategies (use generic magic prompt):
+ * - STRATEGY_EXPLORE, STRATEGY_TREASURE, STRATEGY_SURVIVAL, STRATEGY_SPEEDRUN
+ *
+ * Persona-based strategies (use specialized prompts with different knowledge levels):
+ * - STRATEGY_EXPERT: Full Zork knowledge, speedrun optimization
+ * - STRATEGY_NAIVE: No prior Zork knowledge, learns through play
+ * - STRATEGY_COMPLETIONIST: Methodical 100% completion approach
+ * - STRATEGY_EXPERIMENTAL: Tests boundaries, creative approaches
  */
 typedef enum {
-    STRATEGY_EXPLORE,      /* Systematic exploration of all rooms */
-    STRATEGY_TREASURE,     /* Focus on finding treasures */
-    STRATEGY_SURVIVAL,     /* Avoid danger, conservative play */
-    STRATEGY_SPEEDRUN     /* Optimal path to win condition */
+    /* Original strategies - use system_v3_magic.txt prompt */
+    STRATEGY_EXPLORE,          /* Systematic exploration of all rooms */
+    STRATEGY_TREASURE,         /* Focus on finding treasures */
+    STRATEGY_SURVIVAL,         /* Avoid danger, conservative play */
+    STRATEGY_SPEEDRUN,         /* Optimal path to win condition */
+
+    /* Persona-based strategies - use specialized prompt files */
+    STRATEGY_EXPERT,           /* Expert speedrunner - knows everything, plays to win */
+    STRATEGY_NAIVE,            /* Naive explorer - knows nothing, learns by doing */
+    STRATEGY_COMPLETIONIST,    /* Completionist - seeks all treasures and best endings */
+    STRATEGY_EXPERIMENTAL      /* Experimental - tests boundaries, tries unusual approaches */
 } player_strategy_t;
 
 /**
@@ -77,6 +95,14 @@ void auto_player_set_strategy(player_strategy_t strategy);
  * @return Current strategy
  */
 player_strategy_t auto_player_get_strategy(void);
+
+/**
+ * Get persona name for display
+ *
+ * @param strategy - Strategy to get name for
+ * @return Human-readable persona name
+ */
+const char *auto_player_get_persona_name(player_strategy_t strategy);
 
 /**
  * Shutdown autonomous player

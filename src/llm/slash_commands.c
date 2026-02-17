@@ -3,6 +3,7 @@
  */
 
 #include "slash_commands.h"
+#include "auto_player.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -78,6 +79,11 @@ slash_result_t slash_commands_process(const char *input) {
                  "Play Modes:\n"
                  "  /play solo      - Human player (you type commands)\n"
                  "  /play auto      - AI player takes over\n\n"
+                 "Player Personas (auto mode only):\n"
+                 "  /player expert        - Speedrunner (knows everything)\n"
+                 "  /player naive         - Explorer (knows nothing)\n"
+                 "  /player completionist - 100%% completion hunter\n"
+                 "  /player experimental  - Boundary tester\n\n"
                  "Information:\n"
                  "  /status         - Show current settings\n"
                  "  /help           - Show this help\n\n"
@@ -144,18 +150,20 @@ slash_result_t slash_commands_process(const char *input) {
     } else if (strcmp(cmd, "/status") == 0) {
         const char *game_mode_str = (g_game_mode == MODE_CLASSIC) ? "CLASSIC" : "ENHANCED";
         const char *play_mode_str = (g_play_mode == PLAY_SOLO) ? "SOLO" : "AUTO";
+        const char *persona_str = auto_player_get_persona_name(auto_player_get_strategy());
 
         snprintf(result.message, sizeof(result.message),
                  "\n=== Current Settings ===\n\n"
                  "Game Mode: %s\n"
-                 "Play Mode: %s\n\n"
+                 "Play Mode: %s\n"
+                 "Player Persona: %s\n\n"
                  "Active Features:\n"
                  "  %s Natural language translation (Chip 0)\n"
                  "  %s ASCII art generation (Chip 1)\n"
                  "  %s Journey postcards (Chip 2)\n"
                  "  %s Autonomous player (Chip 3)\n\n"
                  "Type /help for available commands.\n",
-                 game_mode_str, play_mode_str,
+                 game_mode_str, play_mode_str, persona_str,
                  (g_game_mode == MODE_ENHANCED) ? "✓" : "✗",
                  (g_game_mode == MODE_ENHANCED) ? "✓" : "✗",
                  (g_game_mode == MODE_ENHANCED) ? "✓" : "✗",
@@ -169,6 +177,63 @@ slash_result_t slash_commands_process(const char *input) {
     } else if (strcmp(cmd, "/play") == 0) {
         snprintf(result.message, sizeof(result.message),
                  "\nUsage: /play <solo|auto>\n"
+                 "Type /help for more info.\n");
+
+    } else if (strncmp(cmd, "/player ", 8) == 0) {
+        const char *persona = cmd + 8;
+        trim((char *)persona);
+
+        if (strcmp(persona, "expert") == 0) {
+            auto_player_set_strategy(STRATEGY_EXPERT);
+            snprintf(result.message, sizeof(result.message),
+                     "\n✓ Player persona: EXPERT SPEEDRUNNER\n"
+                     "  Full Zork knowledge, optimal play, plays to win!\n"
+                     "  • Knows all treasure locations\n"
+                     "  • Memorized optimal paths\n"
+                     "  • Lamp battery management mastery\n");
+        } else if (strcmp(persona, "naive") == 0) {
+            auto_player_set_strategy(STRATEGY_NAIVE);
+            snprintf(result.message, sizeof(result.message),
+                     "\n✓ Player persona: NAIVE EXPLORER\n"
+                     "  No prior Zork knowledge, learns by doing!\n"
+                     "  • Discovers everything naturally\n"
+                     "  • Curious and cautious\n"
+                     "  • Makes beginner mistakes\n");
+        } else if (strcmp(persona, "completionist") == 0) {
+            auto_player_set_strategy(STRATEGY_COMPLETIONIST);
+            snprintf(result.message, sizeof(result.message),
+                     "\n✓ Player persona: COMPLETIONIST\n"
+                     "  Seeks all treasures and best endings!\n"
+                     "  • Methodical 100%% completion\n"
+                     "  • Maps every location\n"
+                     "  • Collects all 20 treasures\n");
+        } else if (strcmp(persona, "experimental") == 0) {
+            auto_player_set_strategy(STRATEGY_EXPERIMENTAL);
+            snprintf(result.message, sizeof(result.message),
+                     "\n✓ Player persona: EXPERIMENTAL\n"
+                     "  Tests boundaries, tries unusual approaches!\n"
+                     "  • Creative problem-solving\n"
+                     "  • Tests parser limits\n"
+                     "  • Discovers unintended mechanics\n");
+        } else {
+            snprintf(result.message, sizeof(result.message),
+                     "\n❌ Unknown persona: %s\n\n"
+                     "Valid personas:\n"
+                     "  expert         - Speedrunner (knows everything)\n"
+                     "  naive          - Explorer (knows nothing)\n"
+                     "  completionist  - 100%% completion hunter\n"
+                     "  experimental   - Boundary tester\n\n"
+                     "Type /help for more info.\n", persona);
+        }
+
+    } else if (strcmp(cmd, "/player") == 0) {
+        snprintf(result.message, sizeof(result.message),
+                 "\nUsage: /player <persona>\n\n"
+                 "Valid personas:\n"
+                 "  expert         - Speedrunner (knows everything)\n"
+                 "  naive          - Explorer (knows nothing)\n"
+                 "  completionist  - 100%% completion hunter\n"
+                 "  experimental   - Boundary tester\n\n"
                  "Type /help for more info.\n");
 
     } else {
@@ -233,6 +298,11 @@ const char *slash_commands_get_help(void) {
            "Play Modes:\n"
            "  /play solo      - Human player\n"
            "  /play auto      - AI player\n\n"
+           "Player Personas (auto mode only):\n"
+           "  /player expert        - Speedrunner (knows everything)\n"
+           "  /player naive         - Explorer (knows nothing)\n"
+           "  /player completionist - 100% completion hunter\n"
+           "  /player experimental  - Boundary tester\n\n"
            "Information:\n"
            "  /status         - Show current settings\n"
            "  /help           - Show this help\n";
@@ -245,12 +315,14 @@ const char *slash_commands_get_status(void) {
     static char status[512];
     const char *game_mode_str = (g_game_mode == MODE_CLASSIC) ? "CLASSIC" : "ENHANCED";
     const char *play_mode_str = (g_play_mode == PLAY_SOLO) ? "SOLO" : "AUTO";
+    const char *persona_str = auto_player_get_persona_name(auto_player_get_strategy());
 
     snprintf(status, sizeof(status),
              "\n=== Current Settings ===\n"
              "Game Mode: %s\n"
-             "Play Mode: %s\n",
-             game_mode_str, play_mode_str);
+             "Play Mode: %s\n"
+             "Player Persona: %s\n",
+             game_mode_str, play_mode_str, persona_str);
 
     return status;
 }
