@@ -80,6 +80,9 @@ static struct {
     char last_error[512];
 } config = {0};
 
+/* Quiet mode flag (suppress initialization messages) */
+static int g_quiet_mode = 0;
+
 /* Mock responses for testing without LLM server (first 4 screens) */
 static const char *mock_responses[] = {
     "open mailbox",                          /* Screen 1: Opening game */
@@ -225,10 +228,13 @@ int llm_client_init(void) {
     config.enabled = 1;
     config.initialized = 1;
 
-    fprintf(stderr, "LLM client: Initialized\n");
-    fprintf(stderr, "  URL: %s\n", config.api_url);
-    fprintf(stderr, "  Model: %s\n", config.model);
-    fprintf(stderr, "  API Key: %s\n", config.api_key[0] ? "[set]" : "[none]");
+    /* Only print initialization message if not in quiet mode */
+    if (!g_quiet_mode) {
+        fprintf(stderr, "LLM client: Initialized\n");
+        fprintf(stderr, "  URL: %s\n", config.api_url);
+        fprintf(stderr, "  Model: %s\n", config.model);
+        fprintf(stderr, "  API Key: %s\n", config.api_key[0] ? "[set]" : "[none]");
+    }
 
     return 0;
 }
@@ -376,6 +382,10 @@ int llm_client_is_enabled(void) {
 
 const char *llm_client_get_last_error(void) {
     return config.last_error;
+}
+
+void llm_client_set_quiet(int quiet) {
+    g_quiet_mode = quiet;
 }
 
 void llm_client_shutdown(void) {

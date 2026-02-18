@@ -29,6 +29,7 @@
 #include "../../../../llm/input_translator.h"
 #include "../../../../llm/slash_commands.h"
 #include "../../../../llm/auto_player.h"
+#include "../../../../llm/context.h"  /* For getting game history for AI */
 #include "../../../../journey/monitor.h"
 #include "../../../../journey/tracker.h"  /* For DIR_* constants */
 #include "../../../../journey/game_state.h"
@@ -554,14 +555,14 @@ zchar os_read_line (int UNUSED (max), zchar *buf, int timeout, int UNUSED(width)
 
 	/* TODO: Truncate to width and max.  */
 
-	/* copy to screen */
-	dumb_display_user_input(read_line_buffer);
-
 	/*
-	 * Slash Command Processing
+	 * Slash Command Processing (BEFORE displaying to screen!)
 	 *
 	 * Handle meta-commands like /mode, /play, /help, /status
 	 * These commands control LLM features and gameplay modes.
+	 *
+	 * CRITICAL: Must check slash commands BEFORE dumb_display_user_input()
+	 * to prevent them from being echoed to the game.
 	 */
 #ifdef BUILD_NATIVE
 	slash_result_t slash_result = slash_commands_process(read_line_buffer);
@@ -581,21 +582,29 @@ zchar os_read_line (int UNUSED (max), zchar *buf, int timeout, int UNUSED(width)
 	}
 #endif
 
+	/* Copy to screen (only non-slash commands reach here) */
+	dumb_display_user_input(read_line_buffer);
+
 	/*
 	 * Autonomous Player Integration
 	 *
 	 * If in auto-play mode (/play auto), generate commands using the Player agent.
-	 * The AI observes game output and decides next actions based on its strategy/persona.
-	 *
-	 * Note: For now, we pass a simple placeholder for game state. The full integration
-	 * with output_capture will be added in a future update to provide complete game
-	 * context to the AI.
+	 * The AI observes game output (captured via context system) and decides next
+	 * actions based on its strategy/persona.
 	 */
 #ifdef BUILD_NATIVE
 	if (slash_commands_is_auto_play() && auto_player_is_enabled()) {
-		/* TODO: Integrate with output_capture to provide full game context */
-		/* For now, use a simple prompt that tells AI to start exploring */
-		const char *game_state = "You are playing Zork. What do you want to do?";
+		/* Get captured game history as context for AI decision */
+		static char game_state_buffer[4096];
+		game_state_buffer[0] = '\0';
+		context_get_formatted(game_state_buffer, sizeof(game_state_buffer));
+
+		const char *game_state = game_state_buffer;
+
+		/* Fallback if no game output captured yet */
+		if (!game_state || strlen(game_state) == 0) {
+			game_state = "You are playing Zork. What do you want to do?";
+		}
 
 		/* Generate next command using Player agent (Chip 3) */
 		char ai_command[512];

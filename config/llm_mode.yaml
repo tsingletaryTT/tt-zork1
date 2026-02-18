@@ -1,12 +1,21 @@
 # LLM Architecture Configuration - Multi-Agent Mode with MAGIC PROMPTS
+# Hardware: 2× P300C chips = 4 devices total (0, 1, 2, 3)
+# Updated: 2026-02-17 - Fixed device allocation to use all 4 devices
+
 mode: multi_agent
 game: zork1
+
+# Device Allocation (one model per device):
+#   Device 0: Translator (Qwen3-0.6B) - Port 8000
+#   Device 1: Artist (Llama-3.2-1B) - Port 8001
+#   Device 2: DM (Qwen3-0.6B) - Port 8002
+#   Device 3: Player (Qwen3-0.6B) - Port 8003
 
 endpoints:
   translator:
     url: http://localhost:8000/v1/chat/completions
-    model: /home/ttuser/models/Qwen3-0.6B
-    chips: [0]
+    model: Qwen3-0.6B
+    device: 0
     max_tokens: 50
     temperature: 0.1
     prompt_file: prompts/translator/system_v5_magic.txt
@@ -14,7 +23,7 @@ endpoints:
   artist:
     url: http://localhost:8001/v1/chat/completions
     model: Llama-3.2-1B-Instruct
-    chips: [1]
+    device: 1
     max_tokens: 150
     temperature: 0.5
     prompt_file: prompts/artist/system_v9_magic.txt
@@ -22,15 +31,15 @@ endpoints:
   dm:
     url: http://localhost:8002/v1/chat/completions
     model: Qwen3-0.6B
-    chips: [0]
+    device: 2
     max_tokens: 250
     temperature: 0.8
     prompt_file: prompts/dm/system_v5_magic.txt
 
   player:
     url: http://localhost:8003/v1/chat/completions
-    model: /home/ttuser/models/Qwen3-0.6B
-    chips: [0]
+    model: Qwen3-0.6B
+    device: 3
     max_tokens: 100
     temperature: 0.6
     prompt_file: prompts/player/system_v3_magic.txt

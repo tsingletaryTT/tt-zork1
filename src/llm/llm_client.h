@@ -149,6 +149,15 @@ int llm_client_is_enabled(void);
 const char *llm_client_get_last_error(void);
 
 /**
+ * Set quiet mode (suppress initialization messages)
+ *
+ * Used by router to avoid spam when reinitializing client for different endpoints.
+ *
+ * @param quiet 1 to suppress messages, 0 for verbose output
+ */
+void llm_client_set_quiet(int quiet);
+
+/**
  * Shut down LLM client and free resources
  */
 void llm_client_shutdown(void);

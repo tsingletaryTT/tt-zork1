@@ -1,8 +1,11 @@
 #!/bin/bash
-# Start 4-LLM Zork Architecture
-# Each Qwen3-0.6B instance runs on a dedicated P300C chip
+# Start 4-LLM Zork Architecture with Resilience
+# Reads config from llm_mode.yaml and starts only missing servers
 
 set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/../config/llm_mode.yaml"
 
 echo "🚀 Starting 4-LLM Zork Architecture..."
 echo ""
@@ -13,33 +16,97 @@ if [[ "$1" == "--no-wait" ]]; then
   SKIP_WAIT=true
 fi
 
-# Ensure correct stack (single-chip mode)
-echo "Configuring stack for single-chip deployment..."
-tt stack use qwen3-0.6b-p100 2>/dev/null || true
+# Helper function to check if server is running on a port
+is_server_running() {
+  local port=$1
+  curl -s --max-time 2 http://localhost:$port/health > /dev/null 2>&1
+  return $?
+}
+
+# Helper function to check if server is in process list
+is_server_starting() {
+  local port=$1
+  tt serve status 2>/dev/null | grep -q "Port: $port"
+  return $?
+}
+
+echo "📋 Checking current server status..."
 echo ""
 
-# Start servers (one per chip)
-echo "🔧 Starting LLM servers..."
+# Define servers based on config
+# Hardware: 4x P300C = 4 devices (0, 1, 2, 3)
+# START ORDER: Qwen models first, then Llama last
+# This prevents stack switching issues where Llama startup breaks other chips
+# Translator: Qwen3-0.6B on device 0, port 8000
+# DM: Qwen3-0.6B on device 2, port 8002
+# Player: Qwen3-0.6B on device 3, port 8003
+# Artist: Llama-3.2-1B on device 1, port 8001 (LAST)
+
+declare -A SERVERS
+SERVERS[8000]="Qwen3-0.6B:0:Translator"
+SERVERS[8001]="Llama-3.2-1B-Instruct:1:Artist"
+SERVERS[8002]="Qwen3-0.6B:2:DM"
+SERVERS[8003]="Qwen3-0.6B:3:Player"
+
+# Check which servers need starting (reordered: Llama last)
+TO_START=()
+for port in 8000 8002 8003 8001; do
+  IFS=':' read -r model device name <<< "${SERVERS[$port]}"
+
+  if is_server_running $port; then
+    echo "✅ $name (port $port): Already running and healthy"
+  elif is_server_starting $port; then
+    echo "⏳ $name (port $port): Starting (will wait for health check)"
+    TO_START+=("$port:$model:$device:$name:resuming")
+  else
+    echo "❌ $name (port $port): Not running - will start"
+    TO_START+=("$port:$model:$device:$name:starting")
+  fi
+done
+
+echo ""
+
+if [ ${#TO_START[@]} -eq 0 ]; then
+  echo "🎉 All 4 servers are already running!"
+  echo ""
+  echo "Endpoints:"
+  echo "  • Command Translator: http://localhost:8000"
+  echo "  • ASCII Artist:       http://localhost:8001"
+  echo "  • Dungeon Master:     http://localhost:8002"
+  echo "  • AI Player:          http://localhost:8003"
+  echo ""
+  echo "To stop all servers: ./scripts/stop-four-llms.sh"
+  echo "To test endpoints:   ./scripts/test-four-llms.sh"
+  exit 0
+fi
+
+echo "🔧 Starting ${#TO_START[@]} server(s)..."
 echo "   (Each server takes ~2-3 minutes to fully initialize)"
 echo ""
 
-echo "[1/4] Starting Command Translator (Device 0, Port 8000)..."
-tt serve start Qwen3-0.6B --device-id 0 --port 8000 --detach
-echo "      Waiting 15s before starting next server..."
-sleep 15
+# Start servers that need starting
+for entry in "${TO_START[@]}"; do
+  IFS=':' read -r port model device name status <<< "$entry"
 
-echo "[2/4] Starting ASCII Artist (Device 1, Port 8001)..."
-tt serve start Qwen3-0.6B --device-id 1 --port 8001 --detach
-echo "      Waiting 15s before starting next server..."
-sleep 15
+  if [ "$status" = "starting" ]; then
+    echo "[$name] Starting on port $port (device $device)..."
 
-echo "[3/4] Starting Dungeon Master (Device 2, Port 8002)..."
-tt serve start Qwen3-0.6B --device-id 2 --port 8002 --detach
-echo "      Waiting 15s before starting next server..."
-sleep 15
+    # Use explicit parameters to avoid stack configuration conflicts
+    # Small models (0.6B, 1B) work well with these settings
+    tt serve start "$model" \
+      --device-id "$device" \
+      --port "$port" \
+      --max-model-len 2048 \
+      --max-num-seqs 32 \
+      --detach
 
-echo "[4/4] Starting AI Player (Device 3, Port 8003)..."
-tt serve start Qwen3-0.6B --device-id 3 --port 8003 --detach
+    echo "      Waiting 15s before next server..."
+    sleep 15
+  else
+    echo "[$name] Already starting, will check health..."
+  fi
+done
+
 echo ""
 
 if [ "$SKIP_WAIT" = true ]; then
@@ -52,11 +119,6 @@ fi
 echo "⏳ Waiting for all servers to initialize..."
 echo "   This typically takes 2-5 minutes per server on first run"
 echo "   (Subsequent runs are faster due to cached compilation)"
-echo ""
-echo "   Progress indicators:"
-echo "   - Model loading: ~30s"
-echo "   - Kernel compilation: ~60-120s (first run only)"
-echo "   - Warmup: ~30s"
 echo ""
 
 # Parallel health check function
@@ -80,21 +142,32 @@ check_server_health() {
   return 1
 }
 
-# Start parallel health checks in background
-echo "Checking all servers in parallel..."
-echo ""
+# Start parallel health checks for all ports that need checking
+PIDS=()
+for entry in "${TO_START[@]}"; do
+  IFS=':' read -r port model device name status <<< "$entry"
+  check_server_health "$port" "$name" > "/tmp/llm_check_${port}.log" 2>&1 &
+  PIDS+=($!)
+done
 
-check_server_health 8000 "Translator (Device 0)" > /tmp/llm_check_8000.log 2>&1 &
-PID_8000=$!
+# Also check already-running servers to confirm they're still healthy
+for port in 8000 8001 8002 8003; do
+  # Skip if we're already checking this port
+  skip=false
+  for entry in "${TO_START[@]}"; do
+    IFS=':' read -r check_port _ _ _ _ <<< "$entry"
+    if [ "$check_port" = "$port" ]; then
+      skip=true
+      break
+    fi
+  done
 
-check_server_health 8001 "Artist (Device 1)" > /tmp/llm_check_8001.log 2>&1 &
-PID_8001=$!
-
-check_server_health 8002 "DM (Device 2)" > /tmp/llm_check_8002.log 2>&1 &
-PID_8002=$!
-
-check_server_health 8003 "Player (Device 3)" > /tmp/llm_check_8003.log 2>&1 &
-PID_8003=$!
+  if [ "$skip" = false ]; then
+    IFS=':' read -r model device name <<< "${SERVERS[$port]}"
+    check_server_health "$port" "$name" > "/tmp/llm_check_${port}.log" 2>&1 &
+    PIDS+=($!)
+  fi
+done
 
 # Show progress while waiting
 echo "Monitoring startup progress (press Ctrl+C to skip waiting)..."
@@ -107,11 +180,11 @@ TOTAL_ELAPSED=0
 while [ $TOTAL_ELAPSED -lt $MAX_WAIT ]; do
   # Check if all background jobs finished
   JOBS_RUNNING=0
-
-  if ps -p $PID_8000 > /dev/null 2>&1; then JOBS_RUNNING=$((JOBS_RUNNING + 1)); fi
-  if ps -p $PID_8001 > /dev/null 2>&1; then JOBS_RUNNING=$((JOBS_RUNNING + 1)); fi
-  if ps -p $PID_8002 > /dev/null 2>&1; then JOBS_RUNNING=$((JOBS_RUNNING + 1)); fi
-  if ps -p $PID_8003 > /dev/null 2>&1; then JOBS_RUNNING=$((JOBS_RUNNING + 1)); fi
+  for pid in "${PIDS[@]}"; do
+    if ps -p $pid > /dev/null 2>&1; then
+      JOBS_RUNNING=$((JOBS_RUNNING + 1))
+    fi
+  done
 
   if [ $JOBS_RUNNING -eq 0 ]; then
     # All checks completed
@@ -125,11 +198,13 @@ while [ $TOTAL_ELAPSED -lt $MAX_WAIT ]; do
   TOTAL_ELAPSED=$((TOTAL_ELAPSED + PROGRESS_INTERVAL))
 done
 
-# Wait for all background jobs to complete
-wait $PID_8000 2>/dev/null; STATUS_8000=$?
-wait $PID_8001 2>/dev/null; STATUS_8001=$?
-wait $PID_8002 2>/dev/null; STATUS_8002=$?
-wait $PID_8003 2>/dev/null; STATUS_8003=$?
+# Wait for all background jobs and collect results
+declare -A RESULTS
+for port in 8000 8001 8002 8003; do
+  for pid in "${PIDS[@]}"; do
+    wait $pid 2>/dev/null && RESULTS[$port]=0 || RESULTS[$port]=1
+  done
+done
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -138,10 +213,11 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # Display results from logs
-cat /tmp/llm_check_8000.log
-cat /tmp/llm_check_8001.log
-cat /tmp/llm_check_8002.log
-cat /tmp/llm_check_8003.log
+for port in 8000 8001 8002 8003; do
+  if [ -f "/tmp/llm_check_${port}.log" ]; then
+    cat "/tmp/llm_check_${port}.log"
+  fi
+done
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -149,44 +225,38 @@ echo ""
 
 # Count successes
 SUCCESS_COUNT=0
-if [ $STATUS_8000 -eq 0 ]; then SUCCESS_COUNT=$((SUCCESS_COUNT + 1)); fi
-if [ $STATUS_8001 -eq 0 ]; then SUCCESS_COUNT=$((SUCCESS_COUNT + 1)); fi
-if [ $STATUS_8002 -eq 0 ]; then SUCCESS_COUNT=$((SUCCESS_COUNT + 1)); fi
-if [ $STATUS_8003 -eq 0 ]; then SUCCESS_COUNT=$((SUCCESS_COUNT + 1)); fi
+for port in 8000 8001 8002 8003; do
+  if is_server_running $port; then
+    SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+  fi
+done
 
-echo "✅ $SUCCESS_COUNT/4 servers started successfully"
+echo "✅ $SUCCESS_COUNT/4 servers healthy"
 echo ""
 
 if [ $SUCCESS_COUNT -lt 4 ]; then
-  echo "⚠️  Some servers failed to start. Troubleshooting:"
+  echo "⚠️  Some servers are not healthy. Troubleshooting:"
   echo ""
   echo "   1. Check server logs:"
   echo "      ls -ltr ~/.tt/servers/logs/"
-  echo "      tail -100 ~/.tt/servers/logs/qwen3-0.6b.log"
   echo ""
   echo "   2. Check for stuck processes:"
   echo "      ps aux | grep vllm"
   echo ""
-  echo "   3. Try restarting failed servers individually:"
-  if [ $STATUS_8000 -ne 0 ]; then
-    echo "      tt serve start Qwen3-0.6B --device-id 0 --port 8000 --detach"
-  fi
-  if [ $STATUS_8001 -ne 0 ]; then
-    echo "      tt serve start Qwen3-0.6B --device-id 1 --port 8001 --detach"
-  fi
-  if [ $STATUS_8002 -ne 0 ]; then
-    echo "      tt serve start Qwen3-0.6B --device-id 2 --port 8002 --detach"
-  fi
-  if [ $STATUS_8003 -ne 0 ]; then
-    echo "      tt serve start Qwen3-0.6B --device-id 3 --port 8003 --detach"
-  fi
+  echo "   3. Try restarting failed servers:"
+  for port in 8000 8001 8002 8003; do
+    if ! is_server_running $port; then
+      IFS=':' read -r model device name <<< "${SERVERS[$port]}"
+      echo "      tt serve start $model --device-id $device --port $port --detach"
+    fi
+  done
   echo ""
   echo "   4. View detailed status:"
   echo "      tt serve status"
   echo ""
 fi
 
-# Show server status regardless of health check results
+# Show server status
 echo "Current server status:"
 echo ""
 tt serve status 2>/dev/null || echo "  (tt serve status not available)"
@@ -202,9 +272,8 @@ if [ $SUCCESS_COUNT -eq 4 ]; then
   echo "  • AI Player:          http://localhost:8003"
   echo ""
   echo "Next steps:"
+  echo "  • Play Zork:          ./play-zork-with-llm.sh"
   echo "  • Test endpoints:     ./scripts/test-four-llms.sh"
-  echo "  • Test prompts:       ./scripts/test-prompt-variants.sh"
-  echo "  • Tune interactively: ./scripts/tune-prompt-interactive.sh"
   echo ""
 else
   echo "You can still test working servers with:"

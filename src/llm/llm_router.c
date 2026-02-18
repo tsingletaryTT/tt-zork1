@@ -546,12 +546,15 @@ static int route_multi_agent(LLMTaskType task, const char *input,
     setenv("ZORK_LLM_URL", ep->url, 1);
     setenv("ZORK_LLM_MODEL", ep->model, 1);
 
-    /* Reinitialize client with new env vars */
+    /* Reinitialize client with new env vars (suppress messages to avoid spam) */
+    llm_client_set_quiet(1);  /* Enable quiet mode */
     llm_client_shutdown();
     if (llm_client_init() != 0) {
         set_error("Failed to initialize LLM client for endpoint");
+        llm_client_set_quiet(0);  /* Restore normal mode */
         return -1;
     }
+    llm_client_set_quiet(0);  /* Restore normal mode */
 
     /* Make API call with endpoint's prompt */
     char raw_response[output_size];
