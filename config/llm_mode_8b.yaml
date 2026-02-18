@@ -1,0 +1,54 @@
+# LLM Architecture Configuration - Single 8B Model Mode
+# Hardware: 1× Llama-3.1-8B across 4 devices (tensor parallelism)
+# Created: 2026-02-18 - For A/B testing against multi-agent mode
+
+mode: unified
+game: zork1
+
+# Single Model Configuration (all tasks share this endpoint)
+# Device Allocation: Tensor parallel across devices 0-3
+# Port: 9000
+# Model: meta-llama/Llama-3.1-8B-Instruct
+
+endpoints:
+  all_tasks:
+    url: http://localhost:9000/v1/chat/completions
+    model: meta-llama/Llama-3.1-8B-Instruct
+    devices: [0, 1, 2, 3]  # Tensor parallelism
+    prompt_file: prompts/unified/system_v1_8b.txt
+
+    # Task-specific overrides
+    # (All use same endpoint, just different max_tokens and temperature)
+    translator:
+      max_tokens: 50
+      temperature: 0.1
+
+    artist:
+      max_tokens: 200
+      temperature: 0.5
+
+    dm:
+      max_tokens: 300
+      temperature: 0.8
+
+    player:
+      max_tokens: 150
+      temperature: 0.6
+
+# A/B Testing Notes:
+# ==================
+# Quality Expectations:
+#   • Better reasoning and context understanding
+#   • More creative ASCII art composition
+#   • Superior strategic planning (Player agent)
+#   • Improved pronoun resolution (Translator)
+#
+# Latency Trade-off:
+#   • Multi-agent: ~200ms (4 parallel requests)
+#   • Single 8B:   ~800ms (4 serial requests)
+#   • Still < 1s total (acceptable for showcase)
+#
+# How to Switch:
+#   1. Stop current servers: ./scripts/stop-four-llms.sh
+#   2. Start 8B model:       ./scripts/start-single-8b.sh
+#   3. Play with 8B config:  ZORK_LLM_CONFIG=config/llm_mode_8b.yaml ./play-zork-with-llm.sh

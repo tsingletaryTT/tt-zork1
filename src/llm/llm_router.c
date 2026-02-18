@@ -599,16 +599,54 @@ static int route_unified(LLMTaskType task, const char *input,
         return -1;
     }
 
-    /* In unified mode, we add role-specific prefix to the prompt */
-    /* For now, we'll use the base prompt - role prompts are a future enhancement */
+    /* In unified mode, add role-specific prefix to help model identify task */
+    const char *task_prefixes[] = {
+        "[TRANSLATE] ",   /* LLM_TASK_TRANSLATE */
+        "[VISUALIZE] ",   /* LLM_TASK_VISUALIZE */
+        "[NARRATE] ",     /* LLM_TASK_NARRATE */
+        "[AUTOPLAY] "     /* LLM_TASK_AUTOPLAY */
+    };
+
+    /* Build prefixed input */
+    char prefixed_input[4096];
+    snprintf(prefixed_input, sizeof(prefixed_input), "%s%s",
+             task_prefixes[task], input);
 
     /* Set endpoint configuration */
     setenv("ZORK_LLM_URL", ep->url, 1);
     setenv("ZORK_LLM_MODEL", ep->model, 1);
 
-    /* Make API call */
-    int result = llm_client_translate(ep->cached_prompt, input,
-                                       output, output_size, 0);
+    /* Reinitialize client with new env vars (suppress messages) */
+    llm_client_set_quiet(1);
+    llm_client_shutdown();
+    if (llm_client_init() != 0) {
+        set_error("Failed to initialize LLM client for unified endpoint");
+        llm_client_set_quiet(0);
+        return -1;
+    }
+    llm_client_set_quiet(0);
+
+    /* Make API call with prefixed input */
+    char raw_response[output_size];
+    int result = llm_client_translate(ep->cached_prompt, prefixed_input,
+                                       raw_response, sizeof(raw_response), 0);
+
+    if (result != 0) {
+        const char *client_error = llm_client_get_last_error();
+        if (client_error && client_error[0]) {
+            set_error(client_error);
+        }
+    } else {
+        /* For single-line commands (translate, autoplay), extract command
+         * For multi-line output (visualize, narrate), use full response */
+        if (task == LLM_TASK_TRANSLATE || task == LLM_TASK_AUTOPLAY) {
+            extract_command(raw_response, output, output_size);
+        } else {
+            /* Use full response for ASCII art and narrative text */
+            strncpy(output, raw_response, output_size - 1);
+            output[output_size - 1] = '\0';
+        }
+    }
 
     return result;
 }
