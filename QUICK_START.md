@@ -1,197 +1,101 @@
-# Quick Start Guide
+# Quick Start: Using Simplified Prompts + ASCII Art
 
-**Get Zork running in under 2 minutes!**
+## The Two Issues You Hit
 
-## Native Build (Play on your computer)
-
-### With LLM Natural Language
-
-```bash
-# Start Ollama and pull model (first time only)
-ollama pull qwen2.5:1.5b
-
-# Play with natural language
-./run-zork-llm.sh
+### ❌ Issue 1: Auto Player Outputting Markdown
+**What you saw:**
+```
+[AI Player → **Strategy: EXPLORE**,,You decide to try new directions...]
 ```
 
-**Try commands like:**
-- "I want to open the mailbox"
-- "Please take the leaflet"
-- "Can you go north?"
+**Problem:** You used `/play auto` without setting a persona first, so it defaulted to the OLD verbose strategy.
 
-### Classic Mode (No LLM)
+**Fix:** Set persona FIRST, then enable auto-play:
+```
+> /player naive    ← Do this FIRST
+> /play auto       ← Then this
+```
+
+### ❌ Issue 2: No ASCII Art
+**Problem:** Port 8001 was running base model, not ASCII art specialist.
+
+**Fix:** ASCII art server is starting now (~2 min). Will work once ready.
+
+---
+
+## Correct Usage
+
+### Feature 1: Simplified AI Prompts
+
+**SET PERSONA FIRST!** This is critical.
 
 ```bash
-# Build
-./scripts/build_local.sh
-
-# Play
 ./zork-native game/zork1.z3
+
+> /mode enhanced       # Enable LLM features
+> /player naive        # ← SET PERSONA FIRST!
+> /play auto           # Then enable auto-play
 ```
 
-**Use standard Zork commands:**
-- north, south, east, west
-- take lamp
-- open mailbox
-- inventory
+**Expected:** Clean commands like `examine mailbox`, `go north`
+**NOT:** Markdown text with `**Strategy:**` headers
 
-## Hardware Build (Blackhole RISC-V)
+**To stop:** `> /play solo`
 
-**⚠️ Note:** Device must be healthy. If stuck, run: `tt-smi -r 0`
+### Feature 2: ASCII Art
 
-### One-Command Launcher
+Art appears automatically when you move!
 
-```bash
-# Build (first time only)
-cd build-host
-cmake --build . --target test_zork_optimized
-cd ..
-
-# Play on hardware!
-./play-zork-hardware.sh
 ```
-
-**Options:**
-```bash
-./play-zork-hardware.sh 5   # 5 batches (default, safe)
-./play-zork-hardware.sh 10  # More batches (may hang!)
-```
-
-**If device hangs:**
-```bash
-sudo tt-cold-reboot  # Quick driver reload (~10s)
-# OR
-tt-smi -r 0          # Full reset (~15s)
-```
-
-## Current Status
-
-### Native Build
-- ✅ **Fully playable**
-- ✅ LLM translation (100% accuracy with qwen2.5:1.5b)
-- ✅ Fast-path optimization (instant exact commands)
-- ✅ Journey mapping (ASCII art of your path)
-- ✅ Complete game experience
-
-### Hardware Build
-- ✅ **Execution proven** on Blackhole RISC-V
-- ✅ Device persistence working
-- ✅ 500 instructions per run (5 batches × 100)
-- ✅ ~7 seconds execution time
-- ✅ Real Zork text output
-- ⚠️ Text-only (no input handling yet)
-- ⚠️ Limited to 5 batches (hardware constraint)
-
-## What Each Launcher Does
-
-### `run-zork-llm.sh`
-**Native with LLM:**
-- Starts Frotz Z-machine interpreter
-- Enables LLM natural language translation
-- Full gameplay with conversational commands
-- Shows journey map on death/victory
-
-### `./zork-native`
-**Native classic:**
-- Pure Frotz interpreter
-- Traditional two-word commands
-- No LLM overhead
-- Fast and simple
-
-### `play-zork-hardware.sh`
-**Blackhole RISC-V:**
-- Runs Z-machine on AI accelerator cores
-- Device persistence (3.2× faster than single-shot)
-- Displays Zork opening text
-- Technical demonstration of classic gaming on AI hardware
-
-## Performance Comparison
-
-| Mode | Latency | Features | Status |
-|------|---------|----------|--------|
-| Native classic | Instant | Full game | ✅ Production |
-| Native + LLM | 1-2s per command | Natural language | ✅ Production |
-| Blackhole RISC-V | 7s per 500 instructions | Hardware proof | ✅ Working |
-
-## Troubleshooting
-
-### "Device failed to initialize"
-```bash
-tt-smi -r 0  # Reset device
-sleep 5      # Wait for init
-./play-zork-hardware.sh
-```
-
-### "Program timed out"
-Device hung. Recovery:
-```bash
-pkill -f test_zork  # Kill stuck process
-tt-smi -r 0         # Reset device
-```
-
-### "LLM translation failed"
-```bash
-# Check Ollama is running
-ollama list
-
-# Restart if needed
-killall ollama
-ollama serve &
-sleep 2
-
-# Run again
-./run-zork-llm.sh
-```
-
-### "Build failed"
-```bash
-# Native build
-./scripts/build_local.sh clean
-./scripts/build_local.sh
-
-# Hardware build
-cd build-host
-rm -rf *
-cmake ..
-cmake --build . --parallel
-cd ..
-```
-
-## Next Steps
-
-After getting Zork running:
-
-1. **Read the docs:**
-   - [TENSTORRENT_EXPLAINED.md](docs/TENSTORRENT_EXPLAINED.md) - Beginner's guide
-   - [BLACKHOLE_RISCV.md](docs/BLACKHOLE_RISCV.md) - Hardware details
-   - [LLM_SUPPORT.md](docs/LLM_SUPPORT.md) - Natural language guide
-
-2. **Experiment:**
-   - Try different LLM models
-   - Test hardware batch limits
-   - Modify prompts for better translation
-
-3. **Contribute:**
-   - Add more opcodes to RISC-V interpreter
-   - Implement input handling on hardware
-   - Optimize batch execution
-
-## Quick Reference
-
-**One-line commands:**
-
-```bash
-# Native LLM: ./run-zork-llm.sh
-# Native classic: ./zork-native game/zork1.z3
-# Hardware: ./play-zork-hardware.sh
-# Reset device: tt-smi -r 0
-# Cold reboot: sudo tt-cold-reboot
+> /mode enhanced
+> look              # See art for current location  
+> go north          # Move → art appears!
 ```
 
 ---
 
-**Welcome to Zork on Tenstorrent!** 🎮🚀
+## Quick Test
 
-*"You are standing in an open field west of a white house, with a boarded front door."*
+```bash
+cd ~/code/tt-zork1
+./zork-native game/zork1.z3
 
-**> open mailbox**
+> /mode enhanced
+> /player naive        # CRITICAL: Do this first!
+> /play auto          # Now watch AI play
+```
+
+Expected: AI outputs clean commands, not markdown.
+
+---
+
+## Important: Slash vs No Slash
+
+**Slash commands** (our custom):
+- `/player naive` - Set persona
+- `/play auto` - Auto-play
+- `/help` - Show commands
+
+**Game commands** (NO slash):
+- `quit` - Exit (NOT /quit!)
+- `save` - Save game
+- `look` - Look around
+
+---
+
+## Troubleshooting
+
+**"AI outputs markdown"**
+→ You forgot `/player naive` before `/play auto`
+
+**"No ASCII art"**
+→ Wait 2 min for server startup
+→ Check: `tt serve status | grep 8001`
+
+**"'/quit' doesn't work"**
+→ Use `quit` without slash
+
+---
+
+Check server status: `tt serve status`
+Should show Llama-3.2-1B-ASCII-merged on port 8001

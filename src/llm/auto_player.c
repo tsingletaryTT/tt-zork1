@@ -26,8 +26,15 @@ static player_strategy_t g_strategy = STRATEGY_EXPLORE;
 /**
  * Extract clean command from LLM response
  *
- * Strips <think> tags and reasoning text, leaving only the command.
- * Handles responses like: "<think>reasoning</think> north" → "north"
+ * Aggressively strips formatting and reasoning to extract clean Zork commands.
+ *
+ * Handles multiple patterns:
+ * - <think> tags: "<think>reasoning</think> north" → "north"
+ * - Markdown bold: "**Explore**,,examine mailbox" → "examine mailbox"
+ * - Quoted commands: "I choose to \"go east\"" → "go east"
+ * - Headers: "## My Command: north" → "north"
+ * - Reasoning with commas: "Since I'm curious,,examine mailbox" → "examine mailbox"
+ * - Colons as separators: "Command: examine mailbox" → "examine mailbox"
  */
 static void clean_llm_response(const char *response, char *output, size_t output_size) {
     if (!response || !output || output_size == 0) {
@@ -35,45 +42,135 @@ static void clean_llm_response(const char *response, char *output, size_t output
         return;
     }
 
+    /* Strategy: Look for quoted commands first (highest confidence) */
+    const char *quote_start = strchr(response, '"');
+    if (quote_start) {
+        quote_start++; /* Skip opening quote */
+        const char *quote_end = strchr(quote_start, '"');
+        if (quote_end && (quote_end - quote_start) < output_size) {
+            size_t len = quote_end - quote_start;
+            strncpy(output, quote_start, len);
+            output[len] = '\0';
+
+            /* Success - we found a quoted command */
+            /* Still trim whitespace */
+            goto trim_output;
+        }
+    }
+
     /* Look for </think> tag */
     const char *think_end = strstr(response, "</think>");
+    const char *start_pos = response;
 
     if (think_end) {
         /* Skip past the </think> tag */
-        const char *cmd_start = think_end + strlen("</think>");
-
-        /* Skip whitespace, punctuation, commas */
-        while (*cmd_start && (isspace((unsigned char)*cmd_start) ||
-                               ispunct((unsigned char)*cmd_start))) {
-            cmd_start++;
-        }
-
-        strncpy(output, cmd_start, output_size - 1);
-        output[output_size - 1] = '\0';
+        start_pos = think_end + strlen("</think>");
     }
     /* Look for <think> without closing tag */
     else if (strstr(response, "<think>")) {
-        /* Skip everything after <think> - it's broken/incomplete */
+        /* Use everything before <think> */
         const char *think_start = strstr(response, "<think>");
         size_t before_think = think_start - response;
-
-        if (before_think > 0) {
-            strncpy(output, response, (before_think < output_size) ? before_think : output_size - 1);
-            output[(before_think < output_size) ? before_think : output_size - 1] = '\0';
+        if (before_think > 0 && before_think < output_size) {
+            strncpy(output, response, before_think);
+            output[before_think] = '\0';
+            goto trim_output;
         } else {
-            /* Nothing before <think>, response is unusable */
             output[0] = '\0';
+            return;
         }
     }
-    /* No think tags at all */
-    else {
-        strncpy(output, response, output_size - 1);
-        output[output_size - 1] = '\0';
+
+    /* Copy from start_pos, will clean up formatting next */
+    strncpy(output, start_pos, output_size - 1);
+    output[output_size - 1] = '\0';
+
+    /* PRIORITY 1: Extract text between code fences (```) if present */
+    char *fence_start = strstr(output, "```");
+    if (fence_start) {
+        char *fence_end = strstr(fence_start + 3, "```");
+        if (fence_end) {
+            /* Found matching pair - extract content between them */
+            fence_start += 3; /* Skip opening ``` */
+            /* Skip optional language identifier (e.g., ```bash\n) */
+            while (*fence_start && (*fence_start == '\n' || isalpha((unsigned char)*fence_start))) {
+                fence_start++;
+            }
+            size_t len = fence_end - fence_start;
+            if (len < output_size) {
+                memmove(output, fence_start, len);
+                output[len] = '\0';
+                /* Successfully extracted fence content - skip rest of cleaning */
+                goto trim_output;
+            }
+        }
     }
 
-    /* Trim trailing whitespace and punctuation */
+    /* PRIORITY 2: Extract text between **bold** markers if present */
+    char *bold_start = strstr(output, "**");
+    if (bold_start) {
+        char *bold_end = strstr(bold_start + 2, "**");
+        if (bold_end) {
+            /* Found matching pair - extract content between them */
+            bold_start += 2; /* Skip opening ** */
+            size_t len = bold_end - bold_start;
+            if (len < output_size) {
+                memmove(output, bold_start, len);
+                output[len] = '\0';
+                /* Successfully extracted bold content - skip rest of cleaning */
+                goto trim_output;
+            }
+        }
+    }
+
+    /* Remove markdown headers (##, ###, etc) */
+    char *hash = output;
+    while (*hash == '#' || *hash == ' ') hash++;
+    if (hash != output) {
+        memmove(output, hash, strlen(hash) + 1);
+    }
+
+    /* Remove all ** markers (bold formatting) */
+    char *asterisk;
+    while ((asterisk = strstr(output, "**")) != NULL) {
+        memmove(asterisk, asterisk + 2, strlen(asterisk + 2) + 1);
+    }
+
+    /* Remove double-comma reasoning separators (,,) - take first part before ,, */
+    char *double_comma = strstr(output, ",,");
+    if (double_comma) {
+        *double_comma = '\0'; /* Truncate at double comma */
+    }
+
+    /* Look for colon separator (e.g. "Command: examine mailbox") */
+    /* But only if there's content after the colon */
+    char *colon = strchr(output, ':');
+    if (colon) {
+        colon++; /* Skip the colon */
+        while (*colon && isspace((unsigned char)*colon)) colon++;
+        if (*colon) { /* Only use text after colon if it's not empty */
+            memmove(output, colon, strlen(colon) + 1);
+        }
+    }
+
+    /* Remove bullet points (-, *, •) at start */
+    char *bullet = output;
+    while (*bullet && (isspace((unsigned char)*bullet) ||
+                       *bullet == '-' || *bullet == '*' ||
+                       *bullet == '•' || *bullet == '>')) {
+        bullet++;
+    }
+    if (bullet != output) {
+        memmove(output, bullet, strlen(bullet) + 1);
+    }
+
+trim_output:
+    /* Trim trailing whitespace and punctuation (but keep valid command chars) */
     char *end = output + strlen(output) - 1;
-    while (end > output && (isspace((unsigned char)*end) || ispunct((unsigned char)*end))) {
+    while (end > output && (isspace((unsigned char)*end) ||
+                            *end == ',' || *end == '.' ||
+                            *end == ';' || *end == '!' ||
+                            *end == '?')) {
         *end = '\0';
         end--;
     }
@@ -85,6 +182,24 @@ static void clean_llm_response(const char *response, char *output, size_t output
     }
     if (start != output) {
         memmove(output, start, strlen(start) + 1);
+    }
+
+    /* Final sanity check: if output is too long (>100 chars), likely still has reasoning */
+    if (strlen(output) > 100) {
+        /* Take only first reasonable chunk (up to first sentence/comma/period) */
+        char *terminator = output;
+        int word_count = 0;
+        while (*terminator && word_count < 5) {
+            if (isspace((unsigned char)*terminator)) {
+                word_count++;
+            }
+            terminator++;
+        }
+        /* Find next natural break after 5 words */
+        while (*terminator && !isspace((unsigned char)*terminator)) {
+            terminator++;
+        }
+        *terminator = '\0';
     }
 }
 
@@ -238,7 +353,7 @@ int auto_player_next_command(const char *game_state,
         const char *old_model = getenv("ZORK_LLM_MODEL");
 
         setenv("ZORK_LLM_URL", "http://localhost:8003/v1/chat/completions", 1);
-        setenv("ZORK_LLM_MODEL", "Qwen3-0.6B", 1);
+        setenv("ZORK_LLM_MODEL", "Llama-3.2-1B-Instruct", 1);
 
         /* Reinitialize client for player endpoint (quietly) */
         llm_client_set_quiet(1);

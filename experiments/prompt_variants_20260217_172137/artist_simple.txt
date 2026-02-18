@@ -1,0 +1,140 @@
+=== ARTIST VARIANT: simple ===
+Prompt file: artist/system_v1_simple.txt
+Parameters: max_tokens=300, temperature=0.7
+
+Test: west_house
+Location: West of House
+Output:
+Here are some simple ASCII art designs for the Zork game locations I can create for you:
+
+**West of House**
+```
+  *** 
+  *   *
+  *  o
+  *  
+  *  o
+  * 
+  *  
+  *   *
+  *** 
+```
+**Entrance to Underground (Dwarven Caves)**
+```
+  #################
+  #           #   
+  #  _____      # 
+  # |       |     # 
+  # |  o  |  o  | |  
+  # |       |     # 
+  # |_____|     # 
+  #           #   
+  #################
+```
+**Dark Cavern**
+```
+    *** 
+   *   *
+  *  o
+  *  
+  *  
+   *** 
+```
+**Lava Flow**
+```
+    ***  
+   *   *
+  *  o
+  *  o
+  *  
+   *** 
+```
+**Maze**
+```
+  _______
+ /        \
+|  ______  |
+ _______/
+```
+**Bridge**
+```
+ _______
+|        |
+ _______
+|       |
+ _______
+```
+**Wizard's Tower**
+```
+  _______
+ /        \
+|  ______  |
+ _______/
+  |       |
+  _______
+```
+**Goblin's Lair**
+```
+  ### 
+  #  o  # 
+  #  o  # 
+  ### 
+``
+Latency: 6843ms
+
+Test: forest
+Location: Forest
+Output:
+Here is an ASCII art of "West of House" from the Zork game:
+
+ ╔════════════════════════════════════╗
+║       🏠            🌲          ║
+║           📬       ⚔️       |          ║
+║    🌲🌲     ____________|          ║
+║   🌲🌲🌲  _____  |           ║
+║     🏠     | |   |          |          ║
+║      |_________|          |           ║
+║        📬         |           |          ║
+║   🌲🌲  ____  |           |          ║
+║   🌲🌲🌲  | |  |           |          ║
+║     🏠       | |   |          |          ║
+║              |_________|           ║
+╚════════════════════════════════════╝
+Latency: 5193ms
+
+Test: cellar
+Location: Cellar
+Output:
+I can generate ASCII art for you. Here are a few examples:
+
+**House**
+
+╔══════════════════════════════════════╗
+║          🏠          ║
+║        ___________   |          ║
+║       |   _______  |          ║
+║        | |       | |          ║
+║        | |   ⨯   | |          ║
+║        | |_______| |          ║
+║        📬          ║
+║          🏠          ║
+╚══════════════════════════════════════╝
+
+**Cave**
+
+╔══════════════════════════════════════╗
+║          🏔️          ║
+║        ___________   |          ║
+║       |   _______  |          ║
+║        | |       | |          ║
+║        | |   ⚔️   | |          ║
+║        | |_______| |          ║
+║        📞          ║
+║          🏔️          ║
+╚══════════════════════════════════════╝
+
+**Forest**
+
+╔══════
+Latency: 6743ms
+

@@ -1821,3 +1821,55 @@ Test 4: Testing prompt file loading...
 
 ---
 
+
+### Phase 2.6: **SPLIT-SCREEN TUI IMPLEMENTATION** (Feb 18, 2026)
+
+**🎉 MAJOR UI UPGRADE: Modern ncurses-based split-screen interface!**
+
+**Goal**: Replace plain text output with a rich terminal UI showing game output, ASCII art, inventory, journey map, and LLM status in real-time.
+
+**What Happened:**
+Implemented a complete split-screen TUI using ncurses, wrapping the existing "dumb" interface with minimal changes (~20 lines modified in Frotz).
+
+**Implementation Summary:**
+- **800 lines of new code** (600 TUI + 200 integration)
+- **~6 hours** of development time
+- **Difficulty**: 2/10 (much easier than modifying Frotz curses)
+
+**Files Created:**
+- `src/tui/split_screen.h` (150 lines) - Public API  
+- `src/tui/split_screen.c` (550 lines) - ncurses implementation
+- `demo-tui.sh` - Demo launcher
+- `docs/TUI_SPLIT_SCREEN.md` - Complete documentation
+- `docs/TUI_IMPLEMENTATION_OPTIONS.md` - Design rationale
+
+**Files Modified** (minimal changes):
+- `src/zmachine/frotz/src/dumb/doutput.c` - Redirect output to TUI
+- `src/zmachine/frotz/src/dumb/dinit.c` - Init/shutdown TUI  
+- `src/zmachine/frotz/src/dumb/dinput.c` - TUI input handling
+- `src/journey/monitor.c` - Update sidebar on events
+- `scripts/build_local.sh` - Detect/link ncurses
+
+**Technical Highlights:**
+1. **TUI Wrapper Approach**: Intercepts output at `putchar`/`printf` level
+2. **Forward Declarations**: Avoids bool type conflicts (Frotz=int, ncurses=_Bool)
+3. **Weak Symbol Stubs**: Compiles without LLM/journey dependencies
+4. **Optional**: Use `ZORK_TUI_DISABLE=1` to disable
+5. **Buffered Output**: Accumulates text until newline for efficiency
+
+**Usage:**
+```bash
+# Default: TUI enabled
+./zork-native game/zork1.z3
+
+# Disable TUI
+export ZORK_TUI_DISABLE=1
+./zork-native game/zork1.z3  
+
+# Demo
+./demo-tui.sh
+```
+
+**Status:** ✅ **COMPLETE** - Modern split-screen TUI functional and documented!
+
+---

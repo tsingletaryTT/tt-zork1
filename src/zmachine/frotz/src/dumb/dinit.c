@@ -29,10 +29,14 @@
 #include "../../../../llm/input_translator.h"
 #include "../../../../llm/slash_commands.h"
 #include "../../../../llm/auto_player.h"
+#include "../../../../llm/scene_visualizer.h"
 #include "../../../../journey/monitor.h"
 #include "../../../../journey/tracker.h"
 #include "../../../../journey/game_state.h"
 #include "../../../../journey/map_generator.h"
+/* TUI split-screen interface - forward declarations to avoid bool conflicts */
+extern int tui_init(void);
+extern void tui_shutdown(void);
 #endif
 
 extern f_setup_t f_setup;
@@ -291,6 +295,14 @@ void os_process_arguments(int argc, char *argv[])
 
 void os_init_screen(void)
 {
+	/* Initialize TUI first (before any output) */
+#ifdef BUILD_NATIVE
+	if (tui_init() < 0) {
+		fprintf(stderr, "Warning: TUI initialization failed. Falling back to plain text output.\n");
+		/* Continue anyway - game works without TUI */
+	}
+#endif
+
 	if (z_header.version == V3 && f_setup.tandy)
 		z_header.config |= CONFIG_TANDY;
 
@@ -339,6 +351,9 @@ void os_init_screen(void)
 		fprintf(stderr, "Warning: Game state detection initialization failed\n");
 		/* Continue anyway - game works without this feature */
 	}
+
+	/* Initialize scene visualizer for ASCII art (enhanced mode) */
+	scene_visualizer_init();
 #endif
 } /* os_init_screen */
 
@@ -383,8 +398,12 @@ void os_quit(int status)
 	}
 
 	/* Shutdown game systems */
+	scene_visualizer_shutdown();
 	game_state_shutdown();
 	monitor_shutdown();
+
+	/* Shutdown TUI last (after all output is done) */
+	tui_shutdown();
 #endif
 
 	exit(status);

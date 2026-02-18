@@ -35,18 +35,17 @@ echo ""
 
 # Define servers based on config
 # Hardware: 4x P300C = 4 devices (0, 1, 2, 3)
-# START ORDER: Qwen models first, then Llama last
-# This prevents stack switching issues where Llama startup breaks other chips
-# Translator: Qwen3-0.6B on device 0, port 8000
-# DM: Qwen3-0.6B on device 2, port 8002
-# Player: Qwen3-0.6B on device 3, port 8003
-# Artist: Llama-3.2-1B on device 1, port 8001 (LAST)
+# ALL LLAMA CONFIGURATION - Testing if Llama-3.2-1B works better across the board
+# Translator: Llama-3.2-1B on device 0, port 8000
+# Artist: Llama-3.2-1B on device 1, port 8001
+# DM: Llama-3.2-1B on device 2, port 8002
+# Player: Llama-3.2-1B on device 3, port 8003
 
 declare -A SERVERS
-SERVERS[8000]="Qwen3-0.6B:0:Translator"
+SERVERS[8000]="Llama-3.2-1B-Instruct:0:Translator"
 SERVERS[8001]="Llama-3.2-1B-Instruct:1:Artist"
-SERVERS[8002]="Qwen3-0.6B:2:DM"
-SERVERS[8003]="Qwen3-0.6B:3:Player"
+SERVERS[8002]="Llama-3.2-1B-Instruct:2:DM"
+SERVERS[8003]="Llama-3.2-1B-Instruct:3:Player"
 
 # Check which servers need starting (reordered: Llama last)
 TO_START=()

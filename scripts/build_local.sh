@@ -53,6 +53,38 @@ else
     CURL_LIBS=""
 fi
 
+# Check for ncurses (needed for TUI)
+if command -v pkg-config &> /dev/null && pkg-config --exists ncursesw; then
+    echo "ncursesw: Found (UTF-8 support)"
+    NCURSES_CFLAGS=$(pkg-config --cflags ncursesw)
+    NCURSES_LIBS=$(pkg-config --libs ncursesw)
+    CFLAGS_COMMON="$CFLAGS_COMMON -DHAVE_NCURSESW"
+elif command -v pkg-config &> /dev/null && pkg-config --exists ncurses; then
+    echo "ncurses: Found"
+    NCURSES_CFLAGS=$(pkg-config --cflags ncurses)
+    NCURSES_LIBS=$(pkg-config --libs ncurses)
+else
+    # Try finding ncurses without pkg-config
+    if [ -f /usr/include/ncursesw/ncurses.h ] || [ -f /usr/local/include/ncursesw/ncurses.h ]; then
+        echo "ncursesw: Found (without pkg-config)"
+        NCURSES_CFLAGS="-DHAVE_NCURSESW"
+        NCURSES_LIBS="-lncursesw"
+    elif [ -f /usr/include/ncurses.h ] || [ -f /usr/local/include/ncurses.h ]; then
+        echo "ncurses: Found (without pkg-config)"
+        NCURSES_CFLAGS=""
+        NCURSES_LIBS="-lncurses"
+    else
+        echo -e "${YELLOW}Warning: ncurses not found. TUI will be disabled.${NC}"
+        echo "To install ncurses:"
+        echo "  macOS:   brew install ncurses"
+        echo "  Ubuntu:  sudo apt-get install libncursesw5-dev"
+        echo "  Fedora:  sudo dnf install ncurses-devel"
+        echo ""
+        NCURSES_CFLAGS=""
+        NCURSES_LIBS=""
+    fi
+fi
+
 echo -e "${GREEN}=== Building Zork Native Interpreter ===${NC}"
 echo "Build type: $BUILD_TYPE"
 echo "Build directory: $BUILD_DIR"
@@ -69,9 +101,9 @@ fi
 
 # Select build flags
 if [ "$BUILD_TYPE" = "release" ]; then
-    CFLAGS="$CFLAGS_COMMON $CFLAGS_RELEASE $CURL_CFLAGS"
+    CFLAGS="$CFLAGS_COMMON $CFLAGS_RELEASE $CURL_CFLAGS $NCURSES_CFLAGS"
 else
-    CFLAGS="$CFLAGS_COMMON $CFLAGS_DEBUG $CURL_CFLAGS"
+    CFLAGS="$CFLAGS_COMMON $CFLAGS_DEBUG $CURL_CFLAGS $NCURSES_CFLAGS"
 fi
 
 # Create build directory
@@ -183,6 +215,21 @@ for src in ${JOURNEY_SRC}/*.c; do
     JOURNEY_OBJS="$JOURNEY_OBJS $obj"
 done
 
+# Compile TUI subsystem (if ncurses available)
+if [ -n "$NCURSES_LIBS" ]; then
+    echo "  Compiling TUI subsystem..."
+    TUI_SRC="src/tui"
+    TUI_OBJS=""
+    for src in ${TUI_SRC}/*.c; do
+        obj="$BUILD_DIR/tui_$(basename ${src%.c}.o)"
+        echo "    $(basename $src)"
+        $CC $CFLAGS $INCLUDES -I${TUI_SRC} -c "$src" -o "$obj"
+        TUI_OBJS="$TUI_OBJS $obj"
+    done
+else
+    TUI_OBJS=""
+fi
+
 # Compile blorb library
 echo "  Building blorb library..."
 $CC $CFLAGS $INCLUDES -c "src/zmachine/frotz/src/blorb/blorblib.c" -o "$BUILD_DIR/blorblib.o"
@@ -197,8 +244,10 @@ $CC $CFLAGS \
     $FROTZ_OBJS \
     $LLM_OBJS \
     $JOURNEY_OBJS \
+    $TUI_OBJS \
     $BLORB_LIB \
     $CURL_LIBS \
+    $NCURSES_LIBS \
     -o "$BUILD_DIR/$BINARY_NAME"
 
 # Create symlink in project root for convenience

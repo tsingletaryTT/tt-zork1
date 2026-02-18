@@ -59,9 +59,15 @@
 #include "monitor.h"
 #include "tracker.h"
 #include "room_names.h"
+#include "../llm/scene_visualizer.h"
+#include "../llm/slash_commands.h"  /* For slash_commands_use_artist() */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* TUI split-screen interface - forward declarations */
+extern void tui_update_sidebar(void);
+extern void tui_update_header(void);
 
 /* Monitor state (singleton pattern) */
 static struct {
@@ -153,10 +159,17 @@ void monitor_location_changed(zword old_location, zword new_location) {
     fprintf(stderr, "Journey monitor: Move recorded (obj %d → %d) via %c\n",
             old_location, new_location, g_monitor.pending_direction);
 
-    /* TODO: Trigger scene visualization
-     * For now, we'll trigger it from a different hook point where we have
-     * access to the full room description text.
-     */
+    /* Generate ASCII art for new location (enhanced mode only) */
+    if (slash_commands_use_artist() && scene_visualizer_is_enabled()) {
+        /* Generate and display ASCII art from room name
+         * The artist LLM can create good scenes from just the location name
+         * (e.g., "West of House", "Forest", "Living Room") */
+        scene_visualizer_generate(abbrev_name, "");
+    }
+
+    /* Update TUI sidebar (if TUI is enabled) */
+    tui_update_sidebar();
+    tui_update_header();  /* Also update header to refresh LLM status */
 }
 
 void monitor_set_direction(char direction) {

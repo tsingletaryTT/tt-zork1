@@ -1,0 +1,30 @@
+=== TRANSLATOR VARIANT: minimal ===
+Prompt file: translator/system_v1_minimal.txt
+Parameters: max_tokens=50, temperature=0.1
+
+Test: casual
+Input: I want to open the mailbox
+Output: open mailbox
+Latency: 293ms
+
+Test: verbose
+Input: I would like to examine the beautiful painting on the wall
+Output: examine painting
+Latency: 128ms
+
+Test: complex
+Input: Go north and then take the sword
+Output: north
+take sword
+Latency: 151ms
+
+Test: ambiguous
+Input: open it
+Output: open door
+Latency: 104ms
+
+Test: polite
+Input: Could you please pick up the lamp?
+Output: take lamp
+Latency: 105ms
+

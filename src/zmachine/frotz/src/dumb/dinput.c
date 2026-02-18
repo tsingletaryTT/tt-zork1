@@ -33,6 +33,9 @@
 #include "../../../../journey/monitor.h"
 #include "../../../../journey/tracker.h"  /* For DIR_* constants */
 #include "../../../../journey/game_state.h"
+/* TUI split-screen interface - forward declarations to avoid bool conflicts */
+extern int tui_is_enabled(void);
+extern int tui_read_input(const char *prompt, char *buf, int bufsize);
 #endif
 
 extern f_setup_t f_setup;
@@ -203,6 +206,23 @@ static int xgetchar(void)
  * other places where I'm not so careful).  */
 static void dumb_getline(char *s)
 {
+#ifdef BUILD_NATIVE
+	/* Use TUI input if enabled */
+	if (tui_is_enabled()) {
+		int len = tui_read_input("> ", s, INPUT_BUFFER_SIZE);
+		if (len >= 0) {
+			/* Add newline to match expected format */
+			if (len < INPUT_BUFFER_SIZE - 1) {
+				s[len] = '\n';
+				s[len + 1] = '\0';
+			}
+			return;
+		}
+		/* Fall through to stdin if TUI input fails */
+	}
+#endif
+
+	/* Original stdin input handling */
 	int c;
 	char *p = s;
 	while (p < s + INPUT_BUFFER_SIZE - 1) {

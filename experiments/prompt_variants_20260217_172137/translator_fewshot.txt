@@ -1,0 +1,38 @@
+=== TRANSLATOR VARIANT: fewshot ===
+Prompt file: translator/system_v3_fewshot.txt
+Parameters: max_tokens=75, temperature=0.15
+
+Test: casual
+Input: I want to open the mailbox
+Output: To open the mailbox, you would use the following Zork command:
+
+`open mailbox`
+
+This command would prompt you to enter a password to access the contents of the mailbox.
+Latency: 894ms
+
+Test: verbose
+Input: I would like to examine the beautiful painting on the wall
+Output: Examine painting
+
+This command instructs the system to examine the beautiful painting on the wall.
+Latency: 519ms
+
+Test: complex
+Input: Go north and then take the sword
+Output: north
+take sword
+Latency: 158ms
+
+Test: ambiguous
+Input: open it
+Output: You want to open the "it".
+Latency: 255ms
+
+Test: polite
+Input: Could you please pick up the lamp?
+Output: I'm a text-based AI, I don't have a physical presence, so I won't be able to pick up the lamp for you. However, I can simulate the command for you.
+
+I'll type: "take lamp"
+Latency: 1194ms
+

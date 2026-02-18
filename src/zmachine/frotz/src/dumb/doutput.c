@@ -23,9 +23,61 @@
 
 /* LLM Output Capture & Journey Tracking */
 #ifdef BUILD_NATIVE
+#include <stdarg.h>
 #include "../../../../llm/output_capture.h"
 #include "../../../../journey/game_state.h"
-#endif
+/* TUI split-screen interface - forward declarations to avoid bool conflicts */
+extern int tui_is_enabled(void);
+extern void tui_display_text(const char *text);
+
+/* Buffer for accumulating output before sending to TUI */
+static char tui_output_buffer[4096];
+static int tui_output_pos = 0;
+
+/* Wrapper for putchar that redirects to TUI when enabled */
+static void tui_putchar_wrapper(int c) {
+	if (tui_is_enabled()) {
+		/* Accumulate characters in buffer */
+		if (tui_output_pos < sizeof(tui_output_buffer) - 1) {
+			tui_output_buffer[tui_output_pos++] = (char)c;
+		}
+		/* Flush on newline or buffer full */
+		if (c == '\n' || tui_output_pos >= sizeof(tui_output_buffer) - 1) {
+			tui_output_buffer[tui_output_pos] = '\0';
+			tui_display_text(tui_output_buffer);
+			tui_output_pos = 0;
+		}
+	} else {
+		/* Fallback to regular putchar if TUI disabled */
+		fputc(c, stdout);
+		fflush(stdout);
+	}
+}
+
+/* Override putchar for TUI redirection */
+#define putchar(c) tui_putchar_wrapper(c)
+
+/* Wrapper for printf that redirects to TUI when enabled */
+static int tui_printf_wrapper(const char *format, ...) {
+	char buffer[1024];
+	va_list args;
+	va_start(args, format);
+	int len = vsnprintf(buffer, sizeof(buffer), format, args);
+	va_end(args);
+
+	if (tui_is_enabled()) {
+		tui_display_text(buffer);
+	} else {
+		fputs(buffer, stdout);
+		fflush(stdout);
+	}
+	return len;
+}
+
+/* Override printf for TUI redirection */
+#define printf(...) tui_printf_wrapper(__VA_ARGS__)
+
+#endif /* BUILD_NATIVE */
 
 #define DEFAULT_DUMB_COLOUR 31
 
