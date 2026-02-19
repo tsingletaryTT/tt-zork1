@@ -61,6 +61,7 @@
 #include "room_names.h"
 #include "../llm/scene_visualizer.h"
 #include "../llm/slash_commands.h"  /* For slash_commands_use_artist() */
+#include "../llm/tui_output.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -91,13 +92,13 @@ static struct {
 int monitor_init(void) {
     /* Safe to call multiple times (idempotent) */
     if (g_monitor.initialized) {
-        fprintf(stderr, "Journey monitor: Already initialized\n");
+        tui_output("Journey monitor: Already initialized\n");
         return 0;
     }
 
     /* Initialize journey tracker first */
     if (journey_init(50) != 0) {
-        fprintf(stderr, "Journey monitor: Failed to initialize tracker\n");
+        tui_output("Journey monitor: Failed to initialize tracker\n");
         return -1;
     }
 
@@ -107,7 +108,7 @@ int monitor_init(void) {
     g_monitor.current_location = 0;
     g_monitor.initialized = 1;
 
-    fprintf(stderr, "Journey monitor: Initialized\n");
+    tui_output("Journey monitor: Initialized\n");
     return 0;
 }
 
@@ -116,7 +117,7 @@ void monitor_location_changed(zword old_location, zword new_location) {
 
     /* Validate state */
     if (!g_monitor.initialized) {
-        fprintf(stderr, "Journey monitor: Not initialized (call monitor_init first)\n");
+        tui_output("Journey monitor: Not initialized (call monitor_init first)\n");
         return;
     }
 
@@ -134,7 +135,7 @@ void monitor_location_changed(zword old_location, zword new_location) {
      * Record it even though there was no "move" to get here
      */
     if (old_location == 0) {
-        fprintf(stderr, "Journey monitor: Starting location detected (obj %d)\n",
+        tui_output("Journey monitor: Starting location detected (obj %d)\n",
                 new_location);
         /* Keep DIR_UNKNOWN for first room (didn't "move" here) */
     }
@@ -147,7 +148,7 @@ void monitor_location_changed(zword old_location, zword new_location) {
 
     /* Record the move to journey tracker */
     if (journey_record_move(new_location, abbrev_name, g_monitor.pending_direction) != 0) {
-        fprintf(stderr, "Journey monitor: Failed to record move\n");
+        tui_output("Journey monitor: Failed to record move\n");
         /* Continue anyway - game should not crash if tracking fails */
     }
 
@@ -156,7 +157,7 @@ void monitor_location_changed(zword old_location, zword new_location) {
     g_monitor.pending_direction = DIR_UNKNOWN;  /* Reset direction */
 
     /* Debug output */
-    fprintf(stderr, "Journey monitor: Move recorded (obj %d → %d) via %c\n",
+    tui_output("Journey monitor: Move recorded (obj %d → %d) via %c\n",
             old_location, new_location, g_monitor.pending_direction);
 
     /* Generate ASCII art for new location (enhanced mode only) */
@@ -174,7 +175,7 @@ void monitor_location_changed(zword old_location, zword new_location) {
 
 void monitor_set_direction(char direction) {
     if (!g_monitor.initialized) {
-        fprintf(stderr, "Journey monitor: Not initialized (call monitor_init first)\n");
+        tui_output("Journey monitor: Not initialized (call monitor_init first)\n");
         return;
     }
 
@@ -189,7 +190,7 @@ void monitor_set_direction(char direction) {
     }
 
     if (!valid) {
-        fprintf(stderr, "Journey monitor: Invalid direction '%c', using DIR_UNKNOWN\n",
+        tui_output("Journey monitor: Invalid direction '%c', using DIR_UNKNOWN\n",
                 direction);
         direction = DIR_UNKNOWN;
     }
@@ -197,7 +198,7 @@ void monitor_set_direction(char direction) {
     /* Store direction for next location change */
     g_monitor.pending_direction = direction;
 
-    fprintf(stderr, "Journey monitor: Direction set to '%c'\n", direction);
+    tui_output("Journey monitor: Direction set to '%c'\n", direction);
 }
 
 char monitor_get_pending_direction(void) {
@@ -206,7 +207,7 @@ char monitor_get_pending_direction(void) {
 
 void monitor_set_enabled(int enabled) {
     g_monitor.enabled = enabled ? 1 : 0;
-    fprintf(stderr, "Journey monitor: %s\n",
+    tui_output("Journey monitor: %s\n",
             g_monitor.enabled ? "Enabled" : "Disabled");
 }
 
@@ -228,20 +229,20 @@ void monitor_shutdown(void) {
     g_monitor.current_location = 0;
     g_monitor.initialized = 0;
 
-    fprintf(stderr, "Journey monitor: Shutdown complete\n");
+    tui_output("Journey monitor: Shutdown complete\n");
 }
 
 void monitor_debug_print(void) {
     if (!g_monitor.initialized) {
-        fprintf(stderr, "Journey monitor: Not initialized\n");
+        tui_output("Journey monitor: Not initialized\n");
         return;
     }
 
-    fprintf(stderr, "\n=== Journey Monitor State ===\n");
-    fprintf(stderr, "Enabled: %s\n", g_monitor.enabled ? "YES" : "NO");
-    fprintf(stderr, "Current location: %d\n", g_monitor.current_location);
-    fprintf(stderr, "Pending direction: '%c'\n", g_monitor.pending_direction);
-    fprintf(stderr, "===========================\n\n");
+    tui_output("\n=== Journey Monitor State ===\n");
+    tui_output("Enabled: %s\n", g_monitor.enabled ? "YES" : "NO");
+    tui_output("Current location: %d\n", g_monitor.current_location);
+    tui_output("Pending direction: '%c'\n", g_monitor.pending_direction);
+    tui_output("===========================\n\n");
 
     /* Also print journey history */
     journey_debug_print();

@@ -61,14 +61,14 @@ int narrative_enhancer_init(void) {
     const char *env_enabled = getenv("ZORK_DM_ENABLED");
     if (env_enabled && strcmp(env_enabled, "0") == 0) {
         g_enabled = 0;
-        fprintf(stderr, "Narrative enhancer: Disabled via ZORK_DM_ENABLED=0\n");
+        tui_output("Narrative enhancer: Disabled via ZORK_DM_ENABLED=0\n");
         return 0;
     }
 
     /* Allocate initial postcard storage */
     g_postcards.cards = calloc(INITIAL_POSTCARD_CAPACITY, sizeof(postcard_t));
     if (!g_postcards.cards) {
-        fprintf(stderr, "Narrative enhancer: Out of memory\n");
+        tui_output("Narrative enhancer: Out of memory\n");
         return -1;
     }
 
@@ -76,7 +76,7 @@ int narrative_enhancer_init(void) {
     g_postcards.count = 0;
     g_initialized = 1;
 
-    fprintf(stderr, "Narrative enhancer: Initialized\n");
+    tui_output("Narrative enhancer: Initialized\n");
     return 0;
 }
 
@@ -99,7 +99,7 @@ static int add_postcard(const char *location,
         postcard_t *new_cards = realloc(g_postcards.cards,
                                         new_capacity * sizeof(postcard_t));
         if (!new_cards) {
-            fprintf(stderr, "Narrative enhancer: Failed to grow postcard array\n");
+            tui_output("Narrative enhancer: Failed to grow postcard array\n");
             return -1;
         }
         g_postcards.cards = new_cards;
@@ -147,7 +147,7 @@ int narrative_enhancer_generate(const char *location,
     /* Call DM via router */
     char raw_response[512];
     if (llm_router_request(LLM_TASK_NARRATE, prompt, raw_response, sizeof(raw_response)) != 0) {
-        fprintf(stderr, "Narrative enhancer: Failed to generate narrative for %s\n",
+        tui_output("Narrative enhancer: Failed to generate narrative for %s\n",
                 location);
         return -1;
     }
@@ -190,7 +190,7 @@ int narrative_enhancer_create_postcard(const char *location,
     /* Call DM via router */
     char raw_response[512];
     if (llm_router_request(LLM_TASK_NARRATE, prompt, raw_response, sizeof(raw_response)) != 0) {
-        fprintf(stderr, "Narrative enhancer: Failed to create postcard for %s\n",
+        tui_output("Narrative enhancer: Failed to create postcard for %s\n",
                 location);
         return -1;
     }

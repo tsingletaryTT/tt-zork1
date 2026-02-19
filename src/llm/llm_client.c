@@ -151,13 +151,13 @@ static size_t write_callback(void *ptr, size_t size, size_t nmemb, void *userdat
     if (buf->size + bytes_to_add >= buf->capacity) {
         size_t new_capacity = buf->capacity * 2;
         if (new_capacity > MAX_RESPONSE_SIZE) {
-            fprintf(stderr, "Error: Response too large\n");
+            tui_output("Error: Response too large\n");
             return 0; /* Abort transfer */
         }
 
         char *new_data = realloc(buf->data, new_capacity);
         if (!new_data) {
-            fprintf(stderr, "Error: Out of memory for response\n");
+            tui_output("Error: Out of memory for response\n");
             return 0; /* Abort transfer */
         }
 
@@ -187,8 +187,8 @@ int llm_client_init(void) {
 
     /* Check if mock mode is enabled (for testing without LLM server) */
     if (mock_str && strcmp(mock_str, "1") == 0) {
-        fprintf(stderr, "LLM client: Running in MOCK MODE (first 4 screens)\n");
-        fprintf(stderr, "  Set ZORK_LLM_MOCK=0 to disable mock mode\n");
+        tui_output("LLM client: Running in MOCK MODE (first 4 screens)\n");
+        tui_output("  Set ZORK_LLM_MOCK=0 to disable mock mode\n");
         config.enabled = 1;
         config.initialized = 1;
         config.mock_mode = 1;
@@ -198,7 +198,7 @@ int llm_client_init(void) {
 
     /* Check if explicitly disabled */
     if (enabled_str && strcmp(enabled_str, "0") == 0) {
-        fprintf(stderr, "LLM client: Disabled via ZORK_LLM_ENABLED=0\n");
+        tui_output("LLM client: Disabled via ZORK_LLM_ENABLED=0\n");
         config.enabled = 0;
         config.initialized = 1;
         return -1;
@@ -219,7 +219,7 @@ int llm_client_init(void) {
     if (res != CURLE_OK) {
         snprintf(config.last_error, sizeof(config.last_error),
                  "Failed to initialize libcurl: %s", curl_easy_strerror(res));
-        fprintf(stderr, "LLM client: %s\n", config.last_error);
+        tui_output("LLM client: %s\n", config.last_error);
         config.enabled = 0;
         config.initialized = 1;
         return -1;
@@ -230,10 +230,10 @@ int llm_client_init(void) {
 
     /* Only print initialization message if not in quiet mode */
     if (!g_quiet_mode) {
-        fprintf(stderr, "LLM client: Initialized\n");
-        fprintf(stderr, "  URL: %s\n", config.api_url);
-        fprintf(stderr, "  Model: %s\n", config.model);
-        fprintf(stderr, "  API Key: %s\n", config.api_key[0] ? "[set]" : "[none]");
+        tui_output("LLM client: Initialized\n");
+        tui_output("  URL: %s\n", config.api_url);
+        tui_output("  Model: %s\n", config.model);
+        tui_output("  API Key: %s\n", config.api_key[0] ? "[set]" : "[none]");
     }
 
     return 0;
@@ -266,12 +266,12 @@ int llm_client_translate(const char *system_prompt,
             strncpy(output, mock_responses[config.mock_call_count], output_size - 1);
             output[output_size - 1] = '\0';
             config.mock_call_count++;
-            fprintf(stderr, "[MOCK] Returned response #%d: %s\n",
+            tui_output("[MOCK] Returned response #%d: %s\n",
                     config.mock_call_count, output);
             return 0;
         } else {
             /* After 4 calls, fall back to pass-through */
-            fprintf(stderr, "[MOCK] Exceeded mock limit, falling back to pass-through\n");
+            tui_output("[MOCK] Exceeded mock limit, falling back to pass-through\n");
             snprintf(config.last_error, sizeof(config.last_error),
                      "Mock mode exhausted");
             return -1;

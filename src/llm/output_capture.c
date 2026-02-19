@@ -46,6 +46,7 @@
 
 #include "output_capture.h"
 #include "context.h"
+#include "tui_output.h"
 #include <stdio.h>
 
 /* State tracking */
@@ -59,7 +60,7 @@ int output_capture_init(void) {
     state.initialized = 1;
     state.enabled = 1;
 
-    fprintf(stderr, "Output capture: Initialized\n");
+    tui_output("Output capture: Initialized\n");
     return 0;
 }
 

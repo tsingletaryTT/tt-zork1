@@ -30,13 +30,13 @@ int scene_visualizer_init(void) {
     if (enabled_env && strcmp(enabled_env, "0") == 0) {
         visualizer_state.enabled = 0;
         visualizer_state.initialized = 1;
-        fprintf(stderr, "Scene visualizer: Disabled\n");
+        tui_output("Scene visualizer: Disabled\n");
         return -1;
     }
 
     /* Check if router is ready */
     if (!llm_router_is_ready()) {
-        fprintf(stderr, "Warning: Scene visualizer disabled (router not ready)\n");
+        tui_output("Warning: Scene visualizer disabled (router not ready)\n");
         visualizer_state.enabled = 0;
         visualizer_state.initialized = 1;
         return -1;
@@ -46,7 +46,7 @@ int scene_visualizer_init(void) {
     visualizer_state.initialized = 1;
     visualizer_state.last_location[0] = '\0';
 
-    fprintf(stderr, "Scene visualizer: Initialized\n");
+    tui_output("Scene visualizer: Initialized\n");
     return 0;
 }
 
@@ -75,7 +75,7 @@ int scene_visualizer_generate(const char *location_name, const char *description
     /* Call artist via router */
     char raw_response[ART_BUFFER_SIZE];
     if (llm_router_request(LLM_TASK_VISUALIZE, prompt, raw_response, sizeof(raw_response)) != 0) {
-        fprintf(stderr, "Warning: Failed to generate art for %s: %s\n",
+        tui_output("Warning: Failed to generate art for %s: %s\n",
                 location_name, llm_router_get_last_error());
         return -1;
     }

@@ -52,6 +52,7 @@
 #include "prompt_loader.h"
 #include "llm_client.h"
 #include "llm_router.h"
+#include "tui_output.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -78,54 +79,54 @@ static struct {
 #define DEFAULT_MAX_TURNS 3
 
 int translator_init(void) {
-    fprintf(stderr, "\n=== Initializing LLM Translation System ===\n");
+    tui_output("\n=== Initializing LLM Translation System ===\n");
 
     /* Initialize context manager */
-    fprintf(stderr, "[1/4] Context manager...\n");
+    tui_output("[1/4] Context manager...\n");
     if (context_init(DEFAULT_MAX_TURNS) != 0) {
-        fprintf(stderr, "Warning: Context manager init failed\n");
+        tui_output("Warning: Context manager init failed\n");
         /* Continue - not fatal */
     }
 
     /* Initialize output capture */
-    fprintf(stderr, "[2/4] Output capture...\n");
+    tui_output("[2/4] Output capture...\n");
     if (output_capture_init() != 0) {
-        fprintf(stderr, "Warning: Output capture init failed\n");
+        tui_output("Warning: Output capture init failed\n");
         /* Continue - not fatal */
     }
 
     /* Initialize prompt loader */
-    fprintf(stderr, "[3/4] Prompt loader...\n");
+    tui_output("[3/4] Prompt loader...\n");
     if (prompt_loader_init("prompts") != 0) {
-        fprintf(stderr, "Info: Using default prompts\n");
+        tui_output("Info: Using default prompts\n");
         /* Continue - defaults are fine */
     }
 
     /* Initialize LLM router (replaces direct client) */
-    fprintf(stderr, "[4/4] LLM router...\n");
+    tui_output("[4/4] LLM router...\n");
     if (llm_router_init(NULL) != 0) {
-        fprintf(stderr, "Warning: LLM router unavailable - translation disabled\n");
-        fprintf(stderr, "  Error: %s\n", llm_router_get_last_error());
+        tui_output("Warning: LLM router unavailable - translation disabled\n");
+        tui_output("  Error: %s\n", llm_router_get_last_error());
         stats.enabled = 0;
         stats.initialized = 1;
-        fprintf(stderr, "=== LLM system initialized (DISABLED - fallback mode) ===\n\n");
+        tui_output("=== LLM system initialized (DISABLED - fallback mode) ===\n\n");
         return -1;
     }
 
     /* Check router mode */
     LLMMode mode = llm_router_get_mode();
-    fprintf(stderr, "  Mode: %s\n", llm_router_mode_to_string(mode));
+    tui_output("  Mode: %s\n", llm_router_mode_to_string(mode));
 
     /* Check if LLM is ready */
     if (!llm_router_is_ready()) {
-        fprintf(stderr, "Info: LLM router not ready\n");
+        tui_output("Info: LLM router not ready\n");
         stats.enabled = 0;
     } else {
         stats.enabled = 1;
     }
 
     stats.initialized = 1;
-    fprintf(stderr, "=== LLM system initialized (%s) ===\n\n",
+    tui_output("=== LLM system initialized (%s) ===\n\n",
             stats.enabled ? "ENABLED" : "DISABLED");
 
     return stats.enabled ? 0 : -1;

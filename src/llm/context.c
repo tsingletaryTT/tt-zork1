@@ -44,6 +44,7 @@
  */
 
 #include "context.h"
+#include "tui_output.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -96,14 +97,14 @@ static void clear_turn(turn_t *turn) {
 int context_init(size_t max_turns) {
     /* Validate input */
     if (max_turns == 0) {
-        fprintf(stderr, "Error: max_turns must be > 0\n");
+        tui_output( "Error: max_turns must be > 0\n");
         return -1;
     }
 
     /* Allocate circular buffer */
     context.turns = calloc(max_turns, sizeof(turn_t));
     if (!context.turns) {
-        fprintf(stderr, "Error: Out of memory allocating context buffer\n");
+        tui_output( "Error: Out of memory allocating context buffer\n");
         return -1;
     }
 
@@ -113,7 +114,7 @@ int context_init(size_t max_turns) {
     context.count = 0;
     clear_turn(&context.current_turn);
 
-    fprintf(stderr, "Context manager: Tracking last %zu turns\n", max_turns);
+    tui_output( "Context manager: Tracking last %zu turns\n", max_turns);
     return 0;
 }
 
@@ -232,7 +233,7 @@ int context_get_formatted(char *buffer, size_t buffer_size) {
         if (buffer_pos + written >= buffer_size - 1) {
             strncpy(buffer + buffer_pos, turn_text, buffer_size - buffer_pos - 1);
             buffer[buffer_size - 1] = '\0';
-            fprintf(stderr, "Warning: Context truncated in formatting\n");
+            tui_output( "Warning: Context truncated in formatting\n");
             return -1;
         }
 

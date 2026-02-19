@@ -44,6 +44,7 @@
  */
 
 #include "tracker.h"
+#include "../llm/tui_output.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -75,7 +76,7 @@ static int grow_history(void) {
 
     /* Safety check: Don't grow beyond maximum */
     if (new_capacity > MAX_JOURNEY_LENGTH) {
-        fprintf(stderr, "Journey tracking: Maximum length reached (%d steps)\n",
+        tui_output("Journey tracking: Maximum length reached (%d steps)\n",
                 MAX_JOURNEY_LENGTH);
         return -1;
     }
@@ -84,14 +85,14 @@ static int grow_history(void) {
     journey_step_t *new_steps = realloc(g_history.steps,
                                         new_capacity * sizeof(journey_step_t));
     if (!new_steps) {
-        fprintf(stderr, "Journey tracking: Out of memory growing history\n");
+        tui_output("Journey tracking: Out of memory growing history\n");
         return -1;
     }
 
     g_history.steps = new_steps;
     g_history.capacity = new_capacity;
 
-    fprintf(stderr, "Journey tracking: Grew capacity to %zu steps\n", new_capacity);
+    tui_output("Journey tracking: Grew capacity to %zu steps\n", new_capacity);
     return 0;
 }
 
@@ -106,7 +107,7 @@ int journey_init(size_t initial_capacity) {
     }
 
     if (initial_capacity > MAX_JOURNEY_LENGTH) {
-        fprintf(stderr, "Journey tracking: Initial capacity too large, using %d\n",
+        tui_output("Journey tracking: Initial capacity too large, using %d\n",
                 DEFAULT_INITIAL_CAPACITY);
         initial_capacity = DEFAULT_INITIAL_CAPACITY;
     }
@@ -114,7 +115,7 @@ int journey_init(size_t initial_capacity) {
     /* Allocate initial array */
     g_history.steps = calloc(initial_capacity, sizeof(journey_step_t));
     if (!g_history.steps) {
-        fprintf(stderr, "Journey tracking: Out of memory during initialization\n");
+        tui_output("Journey tracking: Out of memory during initialization\n");
         return -1;
     }
 
@@ -122,19 +123,19 @@ int journey_init(size_t initial_capacity) {
     g_history.count = 0;
     g_history.last_location = 0;
 
-    fprintf(stderr, "Journey tracking: Initialized (capacity: %zu)\n", initial_capacity);
+    tui_output("Journey tracking: Initialized (capacity: %zu)\n", initial_capacity);
     return 0;
 }
 
 int journey_record_move(zword room_obj, const char *room_name, char direction) {
     /* Validate inputs */
     if (!g_history.steps) {
-        fprintf(stderr, "Journey tracking: Not initialized (call journey_init first)\n");
+        tui_output("Journey tracking: Not initialized (call journey_init first)\n");
         return -1;
     }
 
     if (!room_name) {
-        fprintf(stderr, "Journey tracking: NULL room name provided\n");
+        tui_output("Journey tracking: NULL room name provided\n");
         return -1;
     }
 
@@ -160,7 +161,7 @@ int journey_record_move(zword room_obj, const char *room_name, char direction) {
     g_history.count++;
 
     /* Debug output */
-    fprintf(stderr, "Journey: Step %zu - %s (obj %d) via %c\n",
+    tui_output("Journey: Step %zu - %s (obj %d) via %c\n",
             g_history.count - 1, step->room_name, room_obj, direction);
 
     return 0;
@@ -193,7 +194,7 @@ void journey_clear(void) {
     /* Zero out the array (helps debugging) */
     memset(g_history.steps, 0, g_history.capacity * sizeof(journey_step_t));
 
-    fprintf(stderr, "Journey tracking: Cleared history\n");
+    tui_output("Journey tracking: Cleared history\n");
 }
 
 void journey_shutdown(void) {
@@ -206,20 +207,20 @@ void journey_shutdown(void) {
     g_history.capacity = 0;
     g_history.last_location = 0;
 
-    fprintf(stderr, "Journey tracking: Shutdown complete\n");
+    tui_output("Journey tracking: Shutdown complete\n");
 }
 
 void journey_debug_print(void) {
     if (!g_history.steps || g_history.count == 0) {
-        fprintf(stderr, "Journey: Empty\n");
+        tui_output("Journey: Empty\n");
         return;
     }
 
-    fprintf(stderr, "\n=== Journey: %zu steps ===\n", g_history.count);
+    tui_output("\n=== Journey: %zu steps ===\n", g_history.count);
     for (size_t i = 0; i < g_history.count; i++) {
         journey_step_t *step = &g_history.steps[i];
-        fprintf(stderr, "%3zu: %-20s (obj %5d) via %c\n",
+        tui_output("%3zu: %-20s (obj %5d) via %c\n",
                 i, step->room_name, step->room_obj, step->direction);
     }
-    fprintf(stderr, "========================\n\n");
+    tui_output("========================\n\n");
 }

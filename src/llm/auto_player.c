@@ -236,7 +236,7 @@ static const char *get_strategy_prompt_file(player_strategy_t strategy) {
 static int load_prompt_file(const char *filepath, char *buffer, size_t buffer_size) {
     FILE *fp = fopen(filepath, "r");
     if (!fp) {
-        fprintf(stderr, "Auto player: Failed to open prompt file: %s\n", filepath);
+        tui_output("Auto player: Failed to open prompt file: %s\n", filepath);
         return -1;
     }
 
@@ -245,7 +245,7 @@ static int load_prompt_file(const char *filepath, char *buffer, size_t buffer_si
     fclose(fp);
 
     if (bytes_read == 0) {
-        fprintf(stderr, "Auto player: Empty prompt file: %s\n", filepath);
+        tui_output("Auto player: Empty prompt file: %s\n", filepath);
         return -1;
     }
 
@@ -290,14 +290,14 @@ int auto_player_init(player_strategy_t strategy) {
     const char *env_enabled = getenv("ZORK_PLAYER_ENABLED");
     if (env_enabled && strcmp(env_enabled, "0") == 0) {
         g_enabled = 0;
-        fprintf(stderr, "Auto player: Disabled via ZORK_PLAYER_ENABLED=0\n");
+        tui_output("Auto player: Disabled via ZORK_PLAYER_ENABLED=0\n");
         return 0;
     }
 
     g_strategy = strategy;
     g_initialized = 1;
 
-    fprintf(stderr, "Auto player: Initialized with persona: %s\n",
+    tui_output("Auto player: Initialized with persona: %s\n",
             auto_player_get_persona_name(strategy));
 
     return 0;
@@ -339,7 +339,7 @@ int auto_player_next_command(const char *game_state,
 
         /* Load persona-specific system prompt */
         if (load_prompt_file(prompt_file, system_prompt, sizeof(system_prompt)) != 0) {
-            fprintf(stderr, "Auto player: Failed to load persona prompt: %s\n", prompt_file);
+            tui_output("Auto player: Failed to load persona prompt: %s\n", prompt_file);
             return -1;
         }
 
@@ -371,7 +371,7 @@ int auto_player_next_command(const char *game_state,
         if (old_model) setenv("ZORK_LLM_MODEL", old_model, 1);
 
         if (result != 0) {
-            fprintf(stderr, "Auto player: LLM request failed\n");
+            tui_output("Auto player: LLM request failed\n");
             return -1;
         }
 
@@ -380,13 +380,13 @@ int auto_player_next_command(const char *game_state,
 
         /* Debug: Show what we got */
         #ifdef DEBUG_AUTO_PLAYER
-        fprintf(stderr, "[Auto-player DEBUG] Raw: %.100s...\n", raw_response);
-        fprintf(stderr, "[Auto-player DEBUG] Cleaned: %s\n", command_buffer);
+        tui_output("[Auto-player DEBUG] Raw: %.100s...\n", raw_response);
+        tui_output("[Auto-player DEBUG] Cleaned: %s\n", command_buffer);
         #endif
 
         /* Check if we got a valid command */
         if (strlen(command_buffer) == 0) {
-            fprintf(stderr, "Auto player: LLM returned empty command (raw: %.80s...)\n", raw_response);
+            tui_output("Auto player: LLM returned empty command (raw: %.80s...)\n", raw_response);
             return -1;
         }
 
@@ -421,7 +421,7 @@ int auto_player_next_command(const char *game_state,
         /* Call player agent via router */
         if (llm_router_request(LLM_TASK_AUTOPLAY, prompt,
                               command_buffer, buffer_size) != 0) {
-            fprintf(stderr, "Auto player: Failed to generate command\n");
+            tui_output("Auto player: Failed to generate command\n");
             return -1;
         }
 

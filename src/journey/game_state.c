@@ -29,6 +29,7 @@
  */
 
 #include "game_state.h"
+#include "../llm/tui_output.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -85,7 +86,7 @@ int game_state_init(void) {
     g_state.reason = GAME_END_UNKNOWN;
     g_state.initialized = 1;
 
-    fprintf(stderr, "Game state detection: Initialized\n");
+    tui_output("Game state detection: Initialized\n");
     return 0;
 }
 
@@ -109,7 +110,7 @@ void game_state_watch_output(const char *text) {
         contains_pattern(text, "****  You have died  ****")) {
 
         if (g_state.reason != GAME_END_DEATH) {
-            fprintf(stderr, "Game state: DEATH detected\n");
+            tui_output("Game state: DEATH detected\n");
             g_state.reason = GAME_END_DEATH;
         }
         return;
@@ -122,7 +123,7 @@ void game_state_watch_output(const char *text) {
         contains_pattern(text, "you have completed")) {
 
         if (g_state.reason != GAME_END_VICTORY) {
-            fprintf(stderr, "Game state: VICTORY detected\n");
+            tui_output("Game state: VICTORY detected\n");
             g_state.reason = GAME_END_VICTORY;
         }
         return;
@@ -134,7 +135,7 @@ void game_state_set_user_quit(void) {
         return;
     }
 
-    fprintf(stderr, "Game state: USER QUIT detected\n");
+    tui_output("Game state: USER QUIT detected\n");
     g_state.reason = GAME_END_USER_QUIT;
 }
 
@@ -172,12 +173,12 @@ void game_state_reset(void) {
     }
 
     g_state.reason = GAME_END_UNKNOWN;
-    fprintf(stderr, "Game state: Reset\n");
+    tui_output("Game state: Reset\n");
 }
 
 void game_state_shutdown(void) {
     g_state.reason = GAME_END_UNKNOWN;
     g_state.initialized = 0;
 
-    fprintf(stderr, "Game state detection: Shutdown\n");
+    tui_output("Game state detection: Shutdown\n");
 }
