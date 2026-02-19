@@ -199,6 +199,10 @@ static int create_windows(void)
         return -1;
     }
 
+    /* FIX 3: Clear sidebar parent window to prevent bleeding between subwindows */
+    werase(g_sidebar_win);
+    wrefresh(g_sidebar_win);
+
     /* Enable scrolling for game window */
     scrollok(g_game_win, TRUE);
     idlok(g_game_win, TRUE);
@@ -215,6 +219,14 @@ static int create_windows(void)
     if (!g_art_win || !g_inventory_win || !g_journey_win) {
         return -1;
     }
+
+    /* FIX 7: Debug borders - draw borders on all windows to verify layout */
+#ifdef TUI_DEBUG_BORDERS
+    box(g_header_win, 0, 0);
+    box(g_game_win, 0, 0);
+    box(g_footer_win, 0, 0);
+    /* Subwindows already have borders in their update functions */
+#endif
 
     return 0;
 }
@@ -241,6 +253,10 @@ int tui_init(void)
         return -1;
     }
 
+    /* FIX 1: Clear the background screen completely to prevent leaky artifacts */
+    clear();
+    refresh();
+
     /* Check terminal size */
     int h, w;
     getmaxyx(stdscr, h, w);
@@ -254,11 +270,18 @@ int tui_init(void)
     /* Configure ncurses */
     cbreak();              /* Disable line buffering */
     noecho();              /* Don't echo input */
+    nl();                  /* Enable newline translation (prevents staircasing) */
     keypad(stdscr, TRUE);  /* Enable arrow keys, etc. */
     curs_set(0);           /* Hide cursor initially */
 
     /* Initialize colors if available */
     init_colors();
+
+    /* FIX 2: Set stdscr background to prevent artifacts */
+    if (has_colors()) {
+        bkgd(COLOR_PAIR(COLOR_PAIR_HEADER) | ' ');
+        wbkgd(stdscr, COLOR_PAIR(COLOR_PAIR_HEADER) | ' ');
+    }
 
     /* Create window layout */
     if (create_windows() < 0) {
@@ -276,9 +299,10 @@ int tui_init(void)
     wprintw(g_game_win, "Welcome to Zork!\n");
     wprintw(g_game_win, "Enhanced TUI Mode Enabled\n\n");
     wattroff(g_game_win, A_BOLD);
-    wrefresh(g_game_win);
 
-    refresh();  /* Refresh stdscr */
+    /* Use atomic refresh for consistency */
+    wnoutrefresh(g_game_win);
+    doupdate();
 
     g_tui_enabled = true;
     g_tui_initialized = true;
@@ -308,7 +332,9 @@ void tui_display_text(const char *text)
 
     /* Add text to game window (will scroll automatically) */
     waddstr(g_game_win, text);
-    wrefresh(g_game_win);
+    /* FIX 5: Use atomic refresh to prevent flicker */
+    wnoutrefresh(g_game_win);
+    doupdate();
 }
 
 /**
@@ -393,7 +419,9 @@ void tui_update_header(void)
         wattroff(g_header_win, COLOR_PAIR(COLOR_PAIR_HEADER));
     }
 
-    wrefresh(g_header_win);
+    /* FIX 5: Use atomic refresh to prevent flicker */
+    wnoutrefresh(g_header_win);
+    doupdate();
 }
 
 /**
@@ -427,7 +455,9 @@ static void update_ascii_art(void)
         mvwprintw(g_art_win, 4, 1, "🌿🌿");
     }
 
-    wrefresh(g_art_win);
+    /* FIX 5: Use atomic refresh to prevent flicker */
+    wnoutrefresh(g_art_win);
+    doupdate();
 }
 
 /**
@@ -458,7 +488,9 @@ static void update_inventory(void)
      * For now, display placeholder */
     mvwprintw(g_inventory_win, row++, 1, "(empty)");
 
-    wrefresh(g_inventory_win);
+    /* FIX 5: Use atomic refresh to prevent flicker */
+    wnoutrefresh(g_inventory_win);
+    doupdate();
 }
 
 /**
@@ -499,7 +531,9 @@ static void update_journey_map(void)
         }
     }
 
-    wrefresh(g_journey_win);
+    /* FIX 5: Use atomic refresh to prevent flicker */
+    wnoutrefresh(g_journey_win);
+    doupdate();
 }
 
 /**
@@ -538,7 +572,9 @@ int tui_read_input(const char *prompt, char *buf, int bufsize)
     /* Clear footer and display prompt */
     werase(g_footer_win);
     mvwprintw(g_footer_win, 0, 0, "%s", prompt);
-    wrefresh(g_footer_win);
+    /* FIX 5: Use atomic refresh to prevent flicker */
+    wnoutrefresh(g_footer_win);
+    doupdate();
 
     /* Show cursor */
     curs_set(1);
@@ -568,6 +604,9 @@ void tui_handle_resize(void)
 
     /* Recreate windows with new dimensions */
     endwin();
+
+    /* FIX 6: Clear screen before recreating windows */
+    clear();
     refresh();
 
     create_windows();
@@ -580,19 +619,23 @@ void tui_handle_resize(void)
 
 /**
  * Force refresh of all windows
+ * FIX 4: Use atomic refresh pattern to prevent flicker
  */
 void tui_refresh_all(void)
 {
     if (!g_tui_enabled) return;
 
-    if (g_header_win) wrefresh(g_header_win);
-    if (g_game_win) wrefresh(g_game_win);
-    if (g_sidebar_win) wrefresh(g_sidebar_win);
-    if (g_art_win) wrefresh(g_art_win);
-    if (g_inventory_win) wrefresh(g_inventory_win);
-    if (g_journey_win) wrefresh(g_journey_win);
-    if (g_footer_win) wrefresh(g_footer_win);
-    refresh();
+    /* Stage all changes with wnoutrefresh() without physical screen update */
+    if (g_header_win) wnoutrefresh(g_header_win);
+    if (g_game_win) wnoutrefresh(g_game_win);
+    if (g_sidebar_win) wnoutrefresh(g_sidebar_win);
+    if (g_art_win) wnoutrefresh(g_art_win);
+    if (g_inventory_win) wnoutrefresh(g_inventory_win);
+    if (g_journey_win) wnoutrefresh(g_journey_win);
+    if (g_footer_win) wnoutrefresh(g_footer_win);
+
+    /* Single atomic update - prevents flicker */
+    doupdate();
 }
 
 /**
