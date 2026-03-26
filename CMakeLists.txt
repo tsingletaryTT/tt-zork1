@@ -76,3 +76,8 @@ target_link_libraries(test_device_persistence PUBLIC TT::Metalium)
 add_executable(test_zork_optimized)
 target_sources(test_zork_optimized PRIVATE ../test_zork_optimized.cpp)
 target_link_libraries(test_zork_optimized PUBLIC TT::Metalium)
+
+# Minimal Zork Demo: Extract opening text without full interpreter
+add_executable(zork_minimal_demo)
+target_sources(zork_minimal_demo PRIVATE zork_minimal_demo.cpp)
+target_link_libraries(zork_minimal_demo PUBLIC TT::Metalium)

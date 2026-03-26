@@ -57,10 +57,9 @@ echo "   (Distributing across 4 chips with tensor parallelism)"
 echo ""
 
 # Start server with tensor parallelism
-# Note: --tensor-parallel-size must equal number of device IDs
+# Note: When using --tensor-parallel, don't specify --device-id (uses all devices)
 tt serve start "$MODEL" \
-  --device-ids "$DEVICES" \
-  --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
+  --tensor-parallel "$TENSOR_PARALLEL_SIZE" \
   --port "$PORT" \
   --max-model-len 4096 \
   --max-num-seqs 16 \
