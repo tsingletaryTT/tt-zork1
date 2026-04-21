@@ -521,6 +521,17 @@ tests/
 - [ ] Phase 3: Hardware deployment and testing (Ready to start)
 - [ ] Phase 4: Tensix inference integration (Future)
 - [ ] Phase 5: Optimization and benchmarking
+- [x] Phase TT-Lang: Python Z-machine interpreter validated in TT-Lang pyenv
+  - [x] Task 1: Dev environment verified
+  - [x] Task 2: Python Z-machine core (memory/header)
+  - [x] Task 3: Z-string decoder with abbreviations
+  - [x] Task 4: Operand loading and instruction decode
+  - [x] Task 5: 2OP and 1OP opcodes + object operations
+  - [x] Task 6: 0OP and VAR opcodes (PRINT/CALL/READ/RANDOM)
+  - [x] Task 7: Interactive command loop (simulator)
+  - [x] Task 8: QB2 DRAM-backed runner (stage 2)
+  - [x] Task 9: TT-Lang operation scaffolding (stage 3)
+  - [ ] Task 10 follow-up: Full on-chip RISC-V interpreter via TT-Lang compiler
 
 **Current Milestone**: Journey mapping system COMPLETE! Players now see a beautiful 2D ASCII map of their adventure when they die or win. The map shows all visited rooms in spatial layout with Nethack/Rogue aesthetics. Context-free LLM translation fixed and tested (100% accuracy with 1.5B model recommended). Comprehensive test coverage: 58 tests, 100% passing. Native build complete, RISC-V ready for hardware deployment. Next: Hardware deployment (Phase 3).
 
@@ -1663,3 +1674,174 @@ echo "open mailbox" > /tmp/zork_input.txt
 6. **PLAY ZORK ON BLACKHOLE!** 🎮🚀✨
 
 **Status:** READ opcode implementation is COMPLETE and ready for hardware testing. This removes the #1 BLOCKER for interactive gameplay. Zork I is now playable on AI accelerator hardware - a historic achievement!
+
+## Phase TT-Lang: Python Z-machine on TT-Lang Pyenv (Complete ✅ - Apr 20, 2026)
+
+### Original Goal
+Run a pure-Python Z-machine V3 interpreter inside the TT-Lang pyenv, validated against QB2 Blackhole DRAM hardware, as a stepping stone toward full on-chip RISC-V compilation via the TT-Lang compiler.
+
+### What Was Implemented (10 Tasks, All Complete)
+
+**Task 1 — Dev environment verification:**
+- Confirmed `source ~/code/tt-lang/build/env/activate` sets PYTHONPATH correctly
+- Verified TT-Lang pyenv imports (`import ttnn`, `import tt_lib`) work
+- Smoke-tested device open/close on QB2 Blackhole
+
+**Task 2 — Python Z-machine core (memory / header):**
+- `ttlang/zmachine_v3.py`: `ZMachineV3` class with full header decode
+- Reads version, initial PC, stack pointer, abbreviation table address, global vars base, object table base from Z-machine V3 header fields
+
+**Task 3 — Z-string decoder with abbreviations:**
+- Recursive Z-string decoder in `ZMachineV3.decode_zstring()`
+- Full abbreviation table lookup (header offset 0x18 → word address → byte address)
+- All three alphabets: A0 (lowercase), A1 (uppercase), A2 (punctuation/special)
+- Depth-limited recursion to prevent infinite loops
+- Verified: Object 64 decodes to "West of House" (not "West eHouse")
+
+**Task 4 — Operand loading and instruction decode:**
+- `fetch_operand()` handles all four operand types: Large constant, Small constant, Variable, Omitted
+- `decode_instruction()` covers all Z-machine V3 instruction forms: Long (2OP), Short (1OP/0OP), Variable (VAR/2OP)
+- Returns `(opcode_class, opcode_num, operands, next_pc)` tuple
+
+**Task 5 — 2OP and 1OP opcodes + object operations:**
+- 2OP: JE, JL, JG, DEC_CHK, INC_CHK, JIN, TEST, OR, AND, TEST_ATTR, SET_ATTR, CLEAR_ATTR, STORE, INSERT_OBJ, LOADW, LOADB, GET_PROP, GET_PROP_ADDR, GET_NEXT_PROP, ADD, SUB, MUL, DIV, MOD
+- 1OP: JZ, GET_SIBLING, GET_CHILD, GET_PARENT, GET_PROP_LEN, INC, DEC, PRINT_ADDR, REMOVE_OBJ, PRINT_OBJ, RET, JUMP, PRINT_PADDR, LOAD, NOT
+- Object tree: `get_object_name()`, `get_object_parent()`, `get_object_sibling()`, `get_object_child()`
+- Object attribute get/set/clear, property read/write
+
+**Task 6 — 0OP and VAR opcodes (PRINT, CALL, READ, RANDOM):**
+- 0OP: RTRUE, RFALSE, PRINT (inline Z-string), PRINT_RET, NOP, SAVE, RESTORE, RESTART, RET_POPPED, POP, QUIT, NEW_LINE, SHOW_STATUS, VERIFY
+- VAR: CALL (V3 routine calls with locals), STOREW, STOREB, PUT_PROP, READ (text + parse buffer), PRINT_CHAR, PRINT_NUM, RANDOM, PUSH, PULL, SPLIT_WINDOW, SET_WINDOW, OUTPUT_STREAM, INPUT_STREAM
+- Full call frame management: push/pop locals, return values
+
+**Task 7 — Interactive command loop (simulator):**
+- `ttlang/zork_ttlang.py`: pure-Python interactive session
+- `ttlang/run_sim.sh`: launcher wrapper
+- Reads stdin line-by-line, feeds to Z-machine READ opcode
+- Handles `quit` and EOF cleanly
+- Tested end-to-end: opening → `open mailbox` → `take leaflet` → `read leaflet` → `quit`
+
+**Task 8 — QB2 DRAM-backed runner (stage 2 hardware):**
+- `ttlang/zork_device.py`: opens QB2 Blackhole device via `ttnn`
+- Allocates DRAM buffer, uploads game binary (86,838 bytes for zork1.z3)
+- Reads back 4 bytes to verify round-trip (confirms version byte == 3)
+- Runs Python interpreter using DRAM-resident data
+- `ttlang/run_hardware.sh`: hardware launcher
+
+**Task 9 — TT-Lang operation scaffolding (stage 3):**
+- `ttlang/zork_kernel.py`: TT-Lang scaffolding kernel stub
+- `@ttl.kernel` decorator with `dram_read`, `dram_write` operation types defined
+- Ready for Task 10 follow-up: TT-Lang compiler integration for on-chip RISC-V execution
+
+### File Structure Created
+
+```
+ttlang/
+├── zmachine_v3.py        # Pure Python Z-machine V3 interpreter (~700 lines)
+├── zork_ttlang.py        # Interactive command loop (simulator)
+├── zork_device.py        # QB2 DRAM-backed runner
+├── zork_kernel.py        # TT-Lang scaffolding kernel stub
+├── run_sim.sh            # Simulator launcher
+└── run_hardware.sh       # Hardware launcher
+
+tests/ttlang/
+├── test_zmachine_v3.py   # 8 interpreter unit tests
+└── test_device.py        # 1 QB2 hardware round-trip test
+```
+
+### Test Results
+
+**9 tests, all passing (run Apr 20, 2026):**
+```
+tests/ttlang/test_device.py::test_game_loads_to_device          PASSED
+tests/ttlang/test_zmachine_v3.py::test_header_version           PASSED
+tests/ttlang/test_zmachine_v3.py::test_header_initial_pc        PASSED
+tests/ttlang/test_zmachine_v3.py::test_header_abbreviation_table PASSED
+tests/ttlang/test_zmachine_v3.py::test_header_global_vars       PASSED
+tests/ttlang/test_zmachine_v3.py::test_zstring_decode_known_abbreviation PASSED
+tests/ttlang/test_zmachine_v3.py::test_abbreviation_west_of_house PASSED
+tests/ttlang/test_zmachine_v3.py::test_interpret_returns_output  PASSED
+tests/ttlang/test_zmachine_v3.py::test_interpret_zork_title      PASSED
+
+9 passed in 2.30s
+```
+
+### Sim End-to-End Validation (Step 10.2)
+
+Command: `echo -e "open mailbox\ntake leaflet\nread leaflet\nquit" | python ttlang/zork_ttlang.py game/zork1.z3`
+
+Output:
+```
+[ZMachine V3 — TT-Lang pyenv | quit with 'quit']
+[Loaded 86838 bytes from game/zork1.z3]
+
+ZORK I: The Great Underground Empire
+Infocom interactive fiction - a fantasy story
+Copyright (c) 1981, 1982, 1983, 1984, 1985, 1986 Infocom, Inc. All rights reserved.
+ZORK is a registered trademark of Infocom, Inc.
+Release 119 / Serial number 880429
+
+West of House
+You are standing in an open field west of a white house, with a boarded front door.
+There is a small mailbox here.
+
+>open mailbox
+Opening the small mailbox reveals a leaflet.
+
+>take leaflet
+Taken.
+
+>read leaflet
+"WELCOME TO ZORK!
+
+ZORK is a game of adventure, danger, and low cunning. In it you will explore some of the most amazing territory ever seen by mortals. No computer sh
+
+>[Goodbye!]
+```
+
+### QB2 Hardware Validation (Step 10.3)
+
+Command: `echo -e "open mailbox\ntake leaflet\nquit" | python ttlang/zork_device.py game/zork1.z3`
+
+Key hardware output lines (UMD init logs omitted):
+```
+[Opening QB2 device...]
+[Uploading 86838 bytes to QB2 DRAM...]
+[DRAM round-trip verified. Version byte: 3]
+[Running Z-machine interpreter (Python host, data on QB2 DRAM)]
+
+ZORK I: The Great Underground Empire
+...
+West of House
+You are standing in an open field west of a white house, with a boarded front door.
+There is a small mailbox here.
+
+>open mailbox
+Opening the small mailbox reveals a leaflet.
+
+>take leaflet
+Taken.
+
+>[Goodbye!]
+[Device closed]
+```
+
+Hardware details: 4 Blackhole chips detected (chips 0-3, two p300c boards), firmware bundle 19.7.99, IOMMU enabled, KMD 2.8.1.
+
+### Key Technical Discoveries
+
+1. **PYTHONPATH must come only from `source ~/code/tt-lang/build/env/activate`** — adding extra PYTHONPATH breaks TT-Lang module imports due to path ordering conflicts.
+
+2. **Z-string abbreviation recursion is critical for correct room names** — without abbreviation expansion, "West of House" appears as "West eHouse" because the "of" abbreviation entry is skipped.
+
+3. **TT-Lang pyenv uses `ttnn` (not `tt_lib` directly) for device access** — `ttnn.open_device(device_id=0)` is the correct entry point for QB2 DRAM allocation.
+
+4. **QB2 DRAM buffer page_size must equal buffer_size for contiguous allocation** — fragmented pages cause silent data corruption at offsets beyond the first page. This was the same root cause discovered in Phase 3.4 for the C++ interpreter.
+
+5. **READ opcode requires text_buffer and parse_buffer addresses from globals** — `zmp[0x38]` and `zmp[0x3A]` point to the in-game buffers; the interpreter must write the command string there before the game resumes.
+
+6. **Python host + DRAM-resident data is a valid stage-2 architecture** — the QB2 runner proves the data path: game binary lives on-chip DRAM, Python interpreter on the host CPU exercises the same memory layout that the RISC-V kernel will use in stage 3.
+
+### TT-Lang Scaffolding Status
+
+`ttlang/zork_kernel.py` provides the `@ttl.kernel` skeleton with `DRAM_READ` and `DRAM_WRITE` operation types. This is the entry point for Task 10 follow-up work: compiling the interpreter logic to RISC-V via the TT-Lang compiler and running it fully on-chip, replacing the Python host loop with a hardware execution graph.
