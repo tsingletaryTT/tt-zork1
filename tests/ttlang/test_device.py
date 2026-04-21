@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 pytestmark = pytest.mark.skipif(
-    not Path("/dev/tenstorrent").exists(),
+    not Path("/dev/tenstorrent").exists() or not any(Path("/dev/tenstorrent").iterdir()),
     reason="QB2 hardware not available"
 )
 
@@ -28,9 +28,15 @@ def test_game_loads_to_device():
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
         back = ttnn.to_torch(on_device)
-        # Values should match to within bfloat16 precision for bytes 0-255
-        assert abs(float(back[0]) - float(game_tensor[0])) < 2.0
-        assert abs(float(back[6]) - float(game_tensor[6])) < 2.0
+        # bfloat16 represents all integers 0-255 exactly (7 explicit mantissa bits
+        # give exact coverage to 256), so the round-trip error must be zero.
+        assert float(back[0]) == float(game_tensor[0])
+        assert float(back[6]) == float(game_tensor[6])
+        # Spot-check middle and end to guard against DRAM paging bugs (we've had
+        # these before with the C++ implementation where only the first page loaded).
+        mid = len(game_bytes) // 2
+        assert float(back[mid]) == float(game_tensor[mid])
+        assert float(back[-1]) == float(game_tensor[-1])
         print(f"  Device round-trip OK: {len(game_bytes)} bytes on QB2 DRAM")
     finally:
         ttnn.close_device(device)

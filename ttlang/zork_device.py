@@ -20,8 +20,8 @@ import torch
 import ttnn
 from ttlang.zmachine_v3 import ZMachineV3
 
-INSTRUCTIONS_STARTUP = 10000
-INSTRUCTIONS_PER_TURN = 5000
+INSTRUCTIONS_STARTUP = 10000   # Zork1 init phase runs ~2000-5000 instructions before first READ
+INSTRUCTIONS_PER_TURN = 5000   # generous budget per turn; Zork1 typical command ~200-500 steps
 
 
 def open_device() -> ttnn.Device:
@@ -31,7 +31,8 @@ def open_device() -> ttnn.Device:
 
 def game_to_device(game_bytes: bytes, device: ttnn.Device) -> ttnn.Tensor:
     """Upload game file to QB2 DRAM. Returns a device tensor."""
-    # Pad to even length for row-major layout
+    # ttnn ROW_MAJOR_LAYOUT with bfloat16 requires even element count (minimum
+    # 2-element row). Pad with 0 — the interpreter never reads past game_bytes length.
     padded = bytearray(game_bytes)
     if len(padded) % 2:
         padded.append(0)
@@ -49,6 +50,9 @@ def game_to_device(game_bytes: bytes, device: ttnn.Device) -> ttnn.Tensor:
 def device_to_bytes(tensor: ttnn.Tensor) -> bytearray:
     """Download a device tensor back to a bytearray."""
     t = ttnn.to_torch(tensor)
+    # float(v): convert tensor scalar to Python float for reliable round()
+    # round(): recover integer from bfloat16 (defensive; 0-255 are exact in bfloat16)
+    # & 0xFF: guard against out-of-range values if dtype ever changes
     return bytearray(int(round(float(v))) & 0xFF for v in t.tolist())
 
 
@@ -78,7 +82,8 @@ def run_on_device(game_path: str) -> None:
         if output:
             print(output, end="", flush=True)
 
-        # Interactive loop
+        # Interactive loop mirrors zork_ttlang.py:run_interactive(); keep in sync
+        # until Task 9 extracts a shared helper.
         while zm.running:
             try:
                 command = input().strip()
