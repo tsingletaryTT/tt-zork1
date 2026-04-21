@@ -491,29 +491,28 @@ class ZMachineV3:
             self.set_var(store_var, 0)
             return
 
-        routine_addr = packed_addr * 2  # V3: word address → byte address
-        num_locals = self.memory[routine_addr]
-        routine_addr += 1
+        body_addr = packed_addr * 2  # V3: word address → byte address of routine header
+        num_locals = self.memory[body_addr]
+        body_addr += 1  # skip num-locals byte; now points to first default-local word
 
         # Read default local values (one word each)
         locals_: list[int] = []
         for i in range(num_locals):
-            locals_.append(self.read_word(routine_addr))
-            routine_addr += 2
+            locals_.append(self.read_word(body_addr))
+            body_addr += 2
 
         # Override with supplied arguments
         for i, arg in enumerate(args):
             if i < len(locals_):
                 locals_[i] = arg
 
-        # Push call frame and jump into routine body
+        # Push call frame; body_addr now points to first instruction of the routine
         self.frames.append({
             "ret_pc": self.pc,
             "locals": locals_,
             "store_var": store_var,
-            "num_locals": num_locals,
         })
-        self.pc = routine_addr
+        self.pc = body_addr
 
     def _do_ret(self, value: int) -> None:
         """Return value from the current routine.
