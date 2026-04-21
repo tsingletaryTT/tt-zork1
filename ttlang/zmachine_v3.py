@@ -10,8 +10,6 @@ Architecture:
   - zork_ttlang.py: wraps ZMachineV3 in a TT-Lang operation for device execution
 """
 from __future__ import annotations
-from pathlib import Path
-from typing import Optional
 
 
 class ZMachineV3:
@@ -100,13 +98,19 @@ class ZMachineV3:
             self.memory[addr] = value
 
     def code_byte(self) -> int:
-        """Fetch byte at PC and advance."""
+        """Fetch byte at PC and advance. Stops execution on PC overflow."""
+        if self.pc >= len(self.memory):
+            self.running = False
+            return 0
         b = self.memory[self.pc]
         self.pc += 1
         return b
 
     def code_word(self) -> int:
-        """Fetch big-endian word at PC and advance."""
+        """Fetch big-endian word at PC and advance. Stops execution on PC overflow."""
+        if self.pc + 2 > len(self.memory):
+            self.running = False
+            return 0
         w = (self.memory[self.pc] << 8) | self.memory[self.pc + 1]
         self.pc += 2
         return w

@@ -3,8 +3,6 @@ import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent))
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
-import pytest
-
 GAME_FILE = pathlib.Path(__file__).parent.parent.parent / "game" / "zork1.z3"
 
 def test_header_version():
@@ -15,9 +13,8 @@ def test_header_version():
 def test_header_initial_pc():
     from ttlang.zmachine_v3 import ZMachineV3
     zm = ZMachineV3(GAME_FILE.read_bytes())
-    # Initial PC for zork1.z3 is at header bytes 0x06-0x07
-    assert zm.pc > 0
-    assert zm.pc < len(zm.memory)
+    # Initial PC for zork1.z3 header bytes 0x06-0x07 = 0x50D5
+    assert zm.pc == 0x50D5
 
 def test_header_abbreviation_table():
     from ttlang.zmachine_v3 import ZMachineV3
