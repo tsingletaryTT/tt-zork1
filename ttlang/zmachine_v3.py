@@ -542,7 +542,7 @@ class ZMachineV3:
         After returning, accumulated output is in self.output.
         """
         for _ in range(max_instructions):
-            if not self.running:
+            if not self.running or self.waiting_for_input:
                 break
             self._execute_one()
             self.instruction_count += 1
