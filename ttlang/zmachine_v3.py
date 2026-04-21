@@ -617,17 +617,377 @@ class ZMachineV3:
     # even though no output is produced yet.
 
     def _dispatch_2op(self, opcode: int, a: int, b: int) -> None:
-        """Dispatch a 2OP instruction. Stub — implemented in Task 5."""
-        pass
+        """Dispatch a 2OP instruction.
+
+        Covers all V3 2OP opcodes: comparisons/branches (JE, JL, JG),
+        variable inc/dec with branch (DEC_CHK, INC_CHK), object tree
+        queries (JIN, TEST_ATTR), bitwise logic (OR, AND, TEST),
+        attribute mutation (SET_ATTR, CLEAR_ATTR), object manipulation
+        (STORE, INSERT_OBJ), memory loads (LOADW, LOADB), property
+        access (GET_PROP, GET_PROP_ADDR, GET_NEXT_PROP), and arithmetic
+        (ADD, SUB, MUL, DIV, MOD).
+
+        Unknown opcodes are silently skipped (safe for forward-compat).
+        """
+        if opcode == 0x01:   # JE — jump if equal
+            self._branch(a == b)
+
+        elif opcode == 0x02: # JL — jump if less (signed)
+            sa = a if a < 0x8000 else a - 0x10000
+            sb = b if b < 0x8000 else b - 0x10000
+            self._branch(sa < sb)
+
+        elif opcode == 0x03: # JG — jump if greater (signed)
+            sa = a if a < 0x8000 else a - 0x10000
+            sb = b if b < 0x8000 else b - 0x10000
+            self._branch(sa > sb)
+
+        elif opcode == 0x04: # DEC_CHK — decrement var a, branch if result < b (signed)
+            val = (self.get_var(a) - 1) & 0xFFFF
+            self.set_var(a, val)
+            signed_val = val if val < 0x8000 else val - 0x10000
+            signed_b   = b   if b   < 0x8000 else b   - 0x10000
+            self._branch(signed_val < signed_b)
+
+        elif opcode == 0x05: # INC_CHK — increment var a, branch if result > b (signed)
+            val = (self.get_var(a) + 1) & 0xFFFF
+            self.set_var(a, val)
+            signed_val = val if val < 0x8000 else val - 0x10000
+            signed_b   = b   if b   < 0x8000 else b   - 0x10000
+            self._branch(signed_val > signed_b)
+
+        elif opcode == 0x06: # JIN — jump if object a is child of b
+            parent = self._get_obj_parent(a)
+            self._branch(parent == b)
+
+        elif opcode == 0x07: # TEST — bit test: branch if (a & b) == b
+            self._branch((a & b) == b)
+
+        elif opcode == 0x08: # OR — bitwise or
+            self._store_result(a | b)
+
+        elif opcode == 0x09: # AND — bitwise and
+            self._store_result(a & b)
+
+        elif opcode == 0x0A: # TEST_ATTR — branch if object a has attribute b
+            self._branch(self._test_attr(a, b))
+
+        elif opcode == 0x0B: # SET_ATTR — set attribute b on object a
+            self._set_attr(a, b)
+
+        elif opcode == 0x0C: # CLEAR_ATTR — clear attribute b on object a
+            self._clear_attr(a, b)
+
+        elif opcode == 0x0D: # STORE — store value b into variable a
+            self.set_var(a, b)
+
+        elif opcode == 0x0E: # INSERT_OBJ — reparent a to b
+            self._insert_obj(a, b)
+
+        elif opcode == 0x0F: # LOADW — load word: result = mem[a + b*2]
+            addr = (a + b * 2) & 0xFFFF
+            self._store_result(self.read_word(addr))
+
+        elif opcode == 0x10: # LOADB — load byte: result = mem[a + b]
+            addr = (a + b) & 0xFFFF
+            self._store_result(self.read_byte(addr))
+
+        elif opcode == 0x11: # GET_PROP — get property b of object a
+            self._store_result(self._get_prop(a, b))
+
+        elif opcode == 0x12: # GET_PROP_ADDR — get address of property b of object a
+            self._store_result(self._get_prop_addr(a, b))
+
+        elif opcode == 0x13: # GET_NEXT_PROP — get next property after b for object a
+            self._store_result(self._get_next_prop(a, b))
+
+        elif opcode == 0x14: # ADD
+            self._store_result((a + b) & 0xFFFF)
+
+        elif opcode == 0x15: # SUB
+            self._store_result((a - b) & 0xFFFF)
+
+        elif opcode == 0x16: # MUL
+            self._store_result((a * b) & 0xFFFF)
+
+        elif opcode == 0x17: # DIV — signed division (truncate toward zero)
+            if b == 0:
+                self._store_result(0)
+            else:
+                sa = a if a < 0x8000 else a - 0x10000
+                sb = b if b < 0x8000 else b - 0x10000
+                self._store_result(int(sa / sb) & 0xFFFF)
+
+        elif opcode == 0x18: # MOD — signed modulo
+            if b == 0:
+                self._store_result(0)
+            else:
+                sa = a if a < 0x8000 else a - 0x10000
+                sb = b if b < 0x8000 else b - 0x10000
+                self._store_result((sa % sb) & 0xFFFF)
+
+        # Unknown 2OP opcodes are silently skipped
 
     def _dispatch_1op(self, opcode: int, a: int) -> None:
-        """Dispatch a 1OP instruction. Stub — implemented in Task 5."""
-        pass
+        """Dispatch a 1OP instruction.
+
+        Covers all V3 1OP opcodes: conditional branch (JZ), object tree
+        navigation (GET_SIBLING, GET_CHILD, GET_PARENT), property length
+        query (GET_PROP_LEN), variable mutation (INC, DEC), string printing
+        (PRINT_ADDR, PRINT_OBJ, PRINT_PADDR), object removal (REMOVE_OBJ),
+        routine return (RET), unconditional jump (JUMP), variable copy
+        (LOAD), and bitwise NOT (NOT).
+
+        CALL_1S reads an additional store_var byte from PC before calling.
+        JUMP encodes offset in the operand (no separate branch byte).
+        """
+        if opcode == 0x00:   # JZ — jump if zero
+            self._branch(a == 0)
+
+        elif opcode == 0x01: # GET_SIBLING — get sibling of object a; branch if non-zero
+            sib = self._get_obj_sibling(a)
+            self._store_result(sib)
+            self._branch(sib != 0)
+
+        elif opcode == 0x02: # GET_CHILD — get first child of object a; branch if non-zero
+            child = self._get_obj_child(a)
+            self._store_result(child)
+            self._branch(child != 0)
+
+        elif opcode == 0x03: # GET_PARENT — get parent of object a
+            self._store_result(self._get_obj_parent(a))
+
+        elif opcode == 0x04: # GET_PROP_LEN — get length of property at data address a
+            # Operand a is the address of property DATA; size byte is one before it
+            if a == 0:
+                self._store_result(0)
+            else:
+                size_byte = self.memory[a - 1]
+                prop_len = (size_byte >> 5) + 1
+                self._store_result(prop_len)
+
+        elif opcode == 0x05: # INC — increment variable a
+            self.set_var(a, (self.get_var(a) + 1) & 0xFFFF)
+
+        elif opcode == 0x06: # DEC — decrement variable a
+            self.set_var(a, (self.get_var(a) - 1) & 0xFFFF)
+
+        elif opcode == 0x07: # PRINT_ADDR — print Z-string at byte address a
+            self._print_str(self.decode_zstring(a))
+
+        elif opcode == 0x08: # CALL_1S — call routine at packed addr a; store result
+            # The store variable byte follows in the instruction stream
+            store_var = self.code_byte()
+            self._do_call(a, [], store_var)
+
+        elif opcode == 0x09: # REMOVE_OBJ — detach object a from its parent
+            self._remove_obj(a)
+
+        elif opcode == 0x0A: # PRINT_OBJ — print name of object a
+            self._print_str(self.get_object_name(a))
+
+        elif opcode == 0x0B: # RET — return value a from current routine
+            self._do_ret(a)
+
+        elif opcode == 0x0C: # JUMP — unconditional branch via signed operand offset
+            # The operand IS the signed offset (not a separate branch byte).
+            # PC has already advanced past the operand bytes when we get here,
+            # so: final PC = PC + offset - 2  (the spec's "-2" corrects for that).
+            offset = a if a < 0x8000 else a - 0x10000
+            self.pc += offset - 2
+
+        elif opcode == 0x0D: # PRINT_PADDR — print Z-string at packed address a
+            # V3: packed address → byte address = a * 2
+            self._print_str(self.decode_zstring(a * 2))
+
+        elif opcode == 0x0E: # LOAD — copy variable a's value to result variable
+            self._store_result(self.get_var(a))
+
+        elif opcode == 0x0F: # NOT — bitwise NOT (V3; replaced by EXT in V5+)
+            self._store_result((~a) & 0xFFFF)
 
     def _dispatch_0op(self, opcode: int) -> None:
-        """Dispatch a 0OP instruction. Stub — implemented in Task 5."""
+        """Dispatch a 0OP instruction. Stub — implemented in Task 6."""
         pass
 
     def _dispatch_var(self, opcode: int, operands: list[int]) -> None:
-        """Dispatch a VAR-form instruction. Stub — implemented in Task 5."""
+        """Dispatch a VAR-form instruction. Stub — implemented in Task 6."""
         pass
+
+    # ------------------------------------------------------------------
+    # Object operations — V3 object table layout:
+    #   Base: self.object_table (from header)
+    #   First 31*2 bytes: default property values (31 words)
+    #   Then 9 bytes per object entry (1-indexed up to 255):
+    #     bytes 0-3: 32-bit attribute flags (bit 0 = attribute 31, etc.)
+    #     byte  4:   parent object number
+    #     byte  5:   sibling object number
+    #     byte  6:   child object number
+    #     bytes 7-8: property table address (big-endian word)
+    # ------------------------------------------------------------------
+
+    def _obj_addr(self, obj_num: int) -> int:
+        """Byte address of the 9-byte object entry for obj_num (1-indexed)."""
+        base = self.object_table + 31 * 2  # skip default property words
+        return base + (obj_num - 1) * 9
+
+    def _get_obj_parent(self, obj_num: int) -> int:
+        """Return the parent object number for obj_num, or 0 if none/invalid."""
+        if obj_num < 1: return 0
+        return self.memory[self._obj_addr(obj_num) + 4]
+
+    def _get_obj_sibling(self, obj_num: int) -> int:
+        """Return the sibling object number for obj_num, or 0 if none/invalid."""
+        if obj_num < 1: return 0
+        return self.memory[self._obj_addr(obj_num) + 5]
+
+    def _get_obj_child(self, obj_num: int) -> int:
+        """Return the first child object number for obj_num, or 0 if none/invalid."""
+        if obj_num < 1: return 0
+        return self.memory[self._obj_addr(obj_num) + 6]
+
+    def _test_attr(self, obj_num: int, attr: int) -> bool:
+        """Return True if object obj_num has attribute attr set.
+
+        Attributes 0-31 are stored as a 32-bit flags field at the start of
+        each object entry (bytes 0-3). Attribute 0 is the most significant
+        bit of byte 0; attribute 31 is the least significant bit of byte 3.
+        """
+        if obj_num < 1 or attr > 31: return False
+        addr = self._obj_addr(obj_num)
+        byte_idx = attr // 8
+        bit = 7 - (attr % 8)
+        return bool(self.memory[addr + byte_idx] & (1 << bit))
+
+    def _set_attr(self, obj_num: int, attr: int) -> None:
+        """Set attribute attr on object obj_num."""
+        if obj_num < 1 or attr > 31: return
+        addr = self._obj_addr(obj_num)
+        byte_idx = attr // 8
+        bit = 7 - (attr % 8)
+        self.memory[addr + byte_idx] |= (1 << bit)
+
+    def _clear_attr(self, obj_num: int, attr: int) -> None:
+        """Clear attribute attr on object obj_num."""
+        if obj_num < 1 or attr > 31: return
+        addr = self._obj_addr(obj_num)
+        byte_idx = attr // 8
+        bit = 7 - (attr % 8)
+        self.memory[addr + byte_idx] &= ~(1 << bit)
+
+    def _get_prop(self, obj_num: int, prop_num: int) -> int:
+        """Return value of property prop_num for object obj_num.
+
+        Properties are stored in a linked list in the object's property table.
+        Each entry has a size byte (high 3 bits = length-1, low 5 bits = prop number),
+        followed by the property data bytes.
+
+        If the property is not present, returns the default value from the
+        object table's default properties area (first 31 words of the object table).
+        """
+        if obj_num < 1: return 0
+        addr = self._obj_addr(obj_num)
+        prop_addr = self.read_word(addr + 7)
+        # Skip the object name Z-string (byte 0 = length in words, then that many words)
+        name_len = self.memory[prop_addr] * 2
+        prop_addr += 1 + name_len
+        while True:
+            size_byte = self.memory[prop_addr]
+            if size_byte == 0:
+                # Not found: return default property value
+                if 1 <= prop_num <= 31:
+                    return self.read_word(self.object_table + (prop_num - 1) * 2)
+                return 0
+            pnum = size_byte & 0x1F
+            plen = (size_byte >> 5) + 1
+            if pnum == prop_num:
+                if plen == 1:
+                    return self.memory[prop_addr + 1]
+                elif plen == 2:
+                    return self.read_word(prop_addr + 1)
+            prop_addr += 1 + plen
+
+    def _get_prop_addr(self, obj_num: int, prop_num: int) -> int:
+        """Return byte address of property prop_num's data for obj_num, or 0.
+
+        Returns the address of the first data byte (one past the size byte).
+        This address is what GET_PROP_LEN expects as its operand.
+        Returns 0 if the property is not present (per V3 spec).
+        """
+        if obj_num < 1: return 0
+        addr = self._obj_addr(obj_num)
+        prop_addr = self.read_word(addr + 7)
+        # Skip object name
+        name_len = self.memory[prop_addr] * 2
+        prop_addr += 1 + name_len
+        while True:
+            size_byte = self.memory[prop_addr]
+            if size_byte == 0:
+                return 0  # property not present
+            pnum = size_byte & 0x1F
+            plen = (size_byte >> 5) + 1
+            if pnum == prop_num:
+                return prop_addr + 1  # address of property data (after size byte)
+            prop_addr += 1 + plen
+
+    def _get_next_prop(self, obj_num: int, prop_num: int) -> int:
+        """Return the property number after prop_num for obj_num.
+
+        If prop_num == 0, returns the first (highest-numbered) property.
+        Returns 0 if there are no further properties.
+        Note: V3 properties are stored in descending order of property number.
+        """
+        if obj_num < 1: return 0
+        addr = self._obj_addr(obj_num)
+        prop_addr = self.read_word(addr + 7)
+        # Skip object name
+        name_len = self.memory[prop_addr] * 2
+        prop_addr += 1 + name_len
+        while True:
+            size_byte = self.memory[prop_addr]
+            if size_byte == 0: return 0
+            pnum = size_byte & 0x1F
+            plen = (size_byte >> 5) + 1
+            # Return this property if we haven't found prop_num yet (prop_num==0)
+            # or if this entry immediately follows prop_num in the list (pnum < prop_num)
+            if prop_num == 0 or pnum < prop_num:
+                return pnum
+            prop_addr += 1 + plen
+
+    def _insert_obj(self, obj_num: int, dest: int) -> None:
+        """Make obj_num the first child of dest (standard INSERT_OBJ semantics).
+
+        First detaches obj_num from its current parent (if any), then makes
+        it the new first child of dest — its sibling becomes the old first child.
+        """
+        self._remove_obj(obj_num)
+        old_child = self._get_obj_child(dest)
+        self.memory[self._obj_addr(obj_num) + 4] = dest      # set parent → dest
+        self.memory[self._obj_addr(obj_num) + 5] = old_child # set sibling → old first child
+        self.memory[self._obj_addr(dest) + 6] = obj_num      # dest's child → obj_num
+
+    def _remove_obj(self, obj_num: int) -> None:
+        """Remove obj_num from its parent's child list.
+
+        Walks the parent's child-sibling chain to find and unlink obj_num,
+        then clears obj_num's parent and sibling fields.
+        Does nothing if obj_num has no parent (already detached).
+        """
+        parent = self._get_obj_parent(obj_num)
+        if parent == 0:
+            return
+        sibling = self._get_obj_sibling(obj_num)
+        child = self._get_obj_child(parent)
+        if child == obj_num:
+            # obj_num is the first child: replace with its sibling
+            self.memory[self._obj_addr(parent) + 6] = sibling
+        else:
+            # Walk sibling chain to find the predecessor of obj_num
+            while child != 0:
+                next_sib = self._get_obj_sibling(child)
+                if next_sib == obj_num:
+                    self.memory[self._obj_addr(child) + 5] = sibling
+                    break
+                child = next_sib
+        self.memory[self._obj_addr(obj_num) + 4] = 0  # clear parent
+        self.memory[self._obj_addr(obj_num) + 5] = 0  # clear sibling
