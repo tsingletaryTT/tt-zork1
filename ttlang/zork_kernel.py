@@ -214,7 +214,7 @@ def zmachine_kernel(
 
         Load order must match what compute() consumes:
             1. state  — one CHUNK_SIZE-element block
-            2. input  — one CHUNK_SIZE-element block
+            2. input  — one INPUT_SIZE-element block (INPUT_SIZE != CHUNK_SIZE)
             3. game   — one CHUNK_SIZE-element block (first chunk only in stub)
 
         ttl.copy() initiates a NoC transfer; tx.wait() stalls until the
