@@ -27,16 +27,14 @@ def test_header_global_vars():
     zm = ZMachineV3(GAME_FILE.read_bytes())
     assert zm.global_vars_addr > 0
 
-def test_zstring_opening_text():
-    """The opening word of Zork I should decode to 'ZORK'."""
+def test_zstring_decode_known_abbreviation():
+    """First abbreviation in zork1.z3's table decodes to 'the '."""
     from ttlang.zmachine_v3 import ZMachineV3
     zm = ZMachineV3(GAME_FILE.read_bytes())
-    # The game title string is near the beginning of high memory.
-    # Object 41 in zork1.z3 is "ZORK owner(s manual".
-    # We verify decode_zstring returns non-empty text for a known address.
-    text = zm.decode_zstring(zm.initial_pc + 2)  # skip routine header
-    # Must return something without crashing
-    assert isinstance(text, str)
+    # zork1.z3 abbreviation table at 0x01F0; entry 0 is word address → byte addr
+    word_addr = zm.read_word(zm.abbrev_table)
+    text = zm.decode_zstring(word_addr * 2)
+    assert text == "the ", f"Got: {text!r}"
 
 def test_abbreviation_west_of_house():
     """Object 64 in zork1.z3 is 'West of House' — tests abbreviation lookup."""
