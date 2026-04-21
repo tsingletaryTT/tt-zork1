@@ -24,6 +24,9 @@ class ZMachineV3:
 
     def __init__(self, game_bytes: bytes) -> None:
         assert len(game_bytes) >= 64, "Game file too short to be valid"
+        # Keep a pristine copy of the original ROM for RESTART opcode.
+        # self.memory may be mutated by the game; _original_bytes never is.
+        self._original_bytes: bytes = bytes(game_bytes)
         # Z-machine memory: mutable copy
         self.memory = bytearray(game_bytes)
         self._parse_header()
@@ -577,10 +580,36 @@ class ZMachineV3:
         form = opcode_byte >> 6          # 0b11=VAR, 0b10=short, else long
 
         if form == 0b11:
-            # VAR form: opcode in low 5 bits; operand-types byte follows
-            opcode = opcode_byte & 0x1F
+            # VAR form: operand-types byte follows opcode byte (encodes up to 4 operands).
+            # Bit 5 of the opcode byte distinguishes two sub-forms (Z-machine spec §4.3.3):
+            #
+            #   0xC0-0xDF  (bit 5 == 0):  2OP opcode encoded in variable form.
+            #     The low 5 bits are a 2OP opcode number (same table as long-form 2OP).
+            #     This allows 2OP instructions to have up to 4 operands and large
+            #     constants.  Only the first two operands are meaningful for dispatch.
+            #     Examples: 0xC9 = AND (2OP 0x09), 0xC1 = JE (2OP 0x01).
+            #
+            #   0xE0-0xFF  (bit 5 == 1):  Proper VAR-specific opcode.
+            #     The low 5 bits are a VAR opcode number.
+            #     Examples: 0xE0 = CALL (VAR 0x00), 0xE6 = PRINT_NUM (VAR 0x06),
+            #               0xE9 = PULL (VAR 0x09).
+            #
+            # Frotz implements this via a unified var_opcodes[] table (process.c):
+            #   indices 0-31  → 2OP opcodes (used for 0xC0-0xDF)
+            #   indices 32-63 → VAR-specific opcodes (used for 0xE0-0xFF)
+            # We mirror that split here.
             operands = self._load_var_operands()
-            self._dispatch_var(opcode, operands)
+            if opcode_byte & 0x20:
+                # Bit 5 set → proper VAR opcode (0xE0-0xFF)
+                opcode = opcode_byte & 0x1F
+                self._dispatch_var(opcode, operands)
+            else:
+                # Bit 5 clear → 2OP in VAR form (0xC0-0xDF)
+                # Only the first two operands matter for 2OP dispatch.
+                opcode = opcode_byte & 0x1F
+                a = operands[0] if len(operands) > 0 else 0
+                b = operands[1] if len(operands) > 1 else 0
+                self._dispatch_2op(opcode, a, b)
 
         elif form == 0b10:
             # Short form: 1OP or 0OP
@@ -807,12 +836,196 @@ class ZMachineV3:
             self._store_result((~a) & 0xFFFF)
 
     def _dispatch_0op(self, opcode: int) -> None:
-        """Dispatch a 0OP instruction. Stub — implemented in Task 6."""
-        pass
+        """Dispatch a 0OP instruction (Z-machine spec §14, 0OP opcodes).
+
+        0OP instructions have no operands. The opcode is in the low 4 bits of
+        the opcode byte when in short form with bits 5-4 == 0b11.
+
+        Opcodes implemented:
+          0x00 RTRUE     — return 1 from current routine
+          0x01 RFALSE    — return 0 from current routine
+          0x02 PRINT     — print inline Z-string (encoded in code stream)
+          0x03 PRINT_RET — print inline Z-string + newline, then RTRUE
+          0x04 NOP       — no operation
+          0x05 SAVE      — V3 branch form; always report failure (not implemented)
+          0x06 RESTORE   — V3 branch form; always report failure (not implemented)
+          0x07 RESTART   — restore original ROM and reinitialize interpreter state
+          0x08 RET_POPPED — return TOS value
+          0x09 POP       — discard TOS
+          0x0A QUIT      — end game execution
+          0x0B NEW_LINE  — print newline character
+          0x0D VERIFY    — V3 branch; always reports checksum OK (true)
+        """
+        if opcode == 0x00:   # RTRUE — return true (1) from current routine
+            self._do_ret(1)
+
+        elif opcode == 0x01: # RFALSE — return false (0) from current routine
+            self._do_ret(0)
+
+        elif opcode == 0x02: # PRINT — inline Z-string immediately follows in code stream
+            # Record start of Z-string, then advance PC past it by scanning for
+            # the end-of-string marker: high bit (bit 15) set in a 16-bit word.
+            start = self.pc
+            while self.pc + 1 < len(self.memory):
+                word = (self.memory[self.pc] << 8) | self.memory[self.pc + 1]
+                self.pc += 2
+                if word & 0x8000:  # bit 15 = end-of-string marker
+                    break
+            self._print_str(self.decode_zstring(start))
+
+        elif opcode == 0x03: # PRINT_RET — print inline Z-string, newline, then RTRUE
+            start = self.pc
+            while self.pc + 1 < len(self.memory):
+                word = (self.memory[self.pc] << 8) | self.memory[self.pc + 1]
+                self.pc += 2
+                if word & 0x8000:
+                    break
+            self._print_str(self.decode_zstring(start))
+            self._print_char("\n")
+            self._do_ret(1)
+
+        elif opcode == 0x04: # NOP — no operation
+            pass
+
+        elif opcode == 0x05: # SAVE (V3 branch form) — always report failure in simulator
+            # Real SAVE writes game state to disk; we don't implement that.
+            # Branching on False tells the game the save failed (it usually handles gracefully).
+            self._branch(False)
+
+        elif opcode == 0x06: # RESTORE (V3 branch form) — always report failure in simulator
+            self._branch(False)
+
+        elif opcode == 0x07: # RESTART — restore original ROM bytes and reinitialize
+            # Must reload from _original_bytes (not from self.memory, which may be
+            # mutated by the game). Then re-parse the header and reset all state.
+            self.memory = bytearray(self._original_bytes)
+            self._parse_header()
+            self._init_state()
+
+        elif opcode == 0x08: # RET_POPPED — return with top-of-stack value
+            self._do_ret(self.stack.pop() if self.stack else 0)
+
+        elif opcode == 0x09: # POP — discard top of stack
+            if self.stack:
+                self.stack.pop()
+
+        elif opcode == 0x0A: # QUIT — terminate game execution
+            self.running = False
+            self.game_over = True
+
+        elif opcode == 0x0B: # NEW_LINE — output a newline character
+            self._print_char("\n")
+
+        elif opcode == 0x0D: # VERIFY (V3 branch) — checksum verification; always pass
+            # We don't verify the checksum; just tell the game everything is fine.
+            self._branch(True)
 
     def _dispatch_var(self, opcode: int, operands: list[int]) -> None:
-        """Dispatch a VAR-form instruction. Stub — implemented in Task 6."""
-        pass
+        """Dispatch a VAR-form instruction (Z-machine spec §14, VAR opcodes).
+
+        VAR-form instructions have 0-4 operands encoded via a types byte that
+        follows the opcode byte (see _load_var_operands). Operand types are
+        read before dispatch; this method receives the already-loaded values.
+
+        Opcodes implemented:
+          0x00 CALL        — call routine, store result
+          0x01 STOREW      — mem[a + b*2] = c
+          0x02 STOREB      — mem[a + b] = c & 0xFF
+          0x03 PUT_PROP    — set object property
+          0x04 READ/SREAD  — read player input into buffers
+          0x05 PRINT_CHAR  — print single ZSCII character
+          0x06 PRINT_NUM   — print signed integer
+          0x07 RANDOM      — pseudo-random number generator
+          0x08 PUSH        — push value onto stack
+          0x09 PULL        — pop from stack into variable
+          0x0A SPLIT_WINDOW — no-op (line-based simulator has no split)
+          0x0B SET_WINDOW  — no-op
+          0x13 OUTPUT_STREAM — no-op
+          0x14 INPUT_STREAM  — no-op
+          0x15 SOUND_EFFECT  — no-op
+        """
+        def arg(n: int, default: int = 0) -> int:
+            """Return operand n, or default if not present."""
+            return operands[n] if n < len(operands) else default
+
+        if opcode == 0x00:   # CALL — call routine; store result byte follows operands
+            if not operands:
+                return
+            packed_addr = operands[0]
+            call_args = operands[1:]
+            # The store variable is encoded as the next byte AFTER all operands,
+            # NOT in the operand-types byte. Always read it from the code stream.
+            store_var = self.code_byte()
+            self._do_call(packed_addr, call_args, store_var)
+
+        elif opcode == 0x01: # STOREW — store 16-bit word: mem[a + b*2] = c
+            self.write_word((arg(0) + arg(1) * 2) & 0xFFFF, arg(2))
+
+        elif opcode == 0x02: # STOREB — store byte: mem[a + b] = c & 0xFF
+            self.write_byte((arg(0) + arg(1)) & 0xFFFF, arg(2) & 0xFF)
+
+        elif opcode == 0x03: # PUT_PROP — write value to object property
+            self._put_prop(arg(0), arg(1), arg(2))
+
+        elif opcode == 0x04: # READ (SREAD) — read player input
+            # Sets waiting_for_input so interpret() will pause after this instruction.
+            # The caller should set self.input_command, clear waiting_for_input,
+            # and call interpret() again to resume.
+            self.waiting_for_input = True
+            self._do_read(arg(0), arg(1))
+
+        elif opcode == 0x05: # PRINT_CHAR — print single ZSCII character
+            ch = arg(0)
+            if 32 <= ch <= 126:
+                self._print_char(chr(ch))
+            elif ch == 13:       # ZSCII carriage-return = newline
+                self._print_char("\n")
+            elif ch == 0:        # NUL = nothing
+                pass
+            # Other ZSCII codes silently discarded (not in printable ASCII range)
+
+        elif opcode == 0x06: # PRINT_NUM — print signed 16-bit integer
+            n = arg(0)
+            if n >= 0x8000:   # sign-extend from 16-bit two's complement
+                n -= 0x10000
+            self._print_str(str(n))
+
+        elif opcode == 0x07: # RANDOM — pseudo-random number generator
+            import random
+            limit = arg(0)
+            if limit > 0:
+                # Return random integer in 1..limit, store result
+                self._store_result(random.randint(1, limit))
+            else:
+                # limit <= 0 → reseed RNG (limit 0 = system seed, negative = seeded)
+                random.seed(abs(limit) if limit != 0 else None)
+                self._store_result(0)
+
+        elif opcode == 0x08: # PUSH — push value onto interpreter stack
+            self.stack.append(arg(0))
+
+        elif opcode == 0x09: # PULL — pop from stack, store into variable
+            # Note: do NOT call get_var(arg(0)) — that would pop the stack again.
+            # Instead, pop explicitly and then store with set_var.
+            val = self.stack.pop() if self.stack else 0
+            self.set_var(arg(0), val)
+
+        elif opcode == 0x0A: # SPLIT_WINDOW — no-op in line-based simulator
+            pass
+
+        elif opcode == 0x0B: # SET_WINDOW — no-op in line-based simulator
+            pass
+
+        elif opcode == 0x13: # OUTPUT_STREAM — no-op (stream management)
+            pass
+
+        elif opcode == 0x14: # INPUT_STREAM — no-op
+            pass
+
+        elif opcode == 0x15: # SOUND_EFFECT — no-op (no audio in simulator)
+            pass
+
+        # Unknown VAR opcodes are silently skipped (safe for forward-compat)
 
     # ------------------------------------------------------------------
     # Object operations — V3 object table layout:
@@ -991,3 +1204,95 @@ class ZMachineV3:
                 child = next_sib
         self.memory[self._obj_addr(obj_num) + 4] = 0  # clear parent
         self.memory[self._obj_addr(obj_num) + 5] = 0  # clear sibling
+
+    # ------------------------------------------------------------------
+    # PUT_PROP and READ helpers — used by _dispatch_var opcodes 0x03/0x04
+    # ------------------------------------------------------------------
+
+    def _put_prop(self, obj_num: int, prop_num: int, val: int) -> None:
+        """Write val to property prop_num of obj_num (PUT_PROP opcode, VAR 0x03).
+
+        Searches the object's property list for the matching property number.
+        If found and the property is 1 byte, writes the low byte of val.
+        If 2 bytes (or more), writes the full 16-bit word.
+        If the property is absent, the write is silently ignored (per V3 spec §12.5).
+
+        Property table layout (each entry):
+          byte 0: size byte — high 3 bits = (length - 1), low 5 bits = property number
+          bytes 1+: property data (1 or 2 bytes for V3)
+        """
+        if obj_num < 1:
+            return
+        addr = self._obj_addr(obj_num)
+        prop_addr = self.read_word(addr + 7)
+        # Skip the object name: byte 0 = name length in Z-string words
+        name_len = self.memory[prop_addr] * 2
+        prop_addr += 1 + name_len
+        while True:
+            size_byte = self.memory[prop_addr]
+            if size_byte == 0:
+                return  # property not present — ignore write (spec §12.5)
+            pnum = size_byte & 0x1F
+            plen = (size_byte >> 5) + 1
+            if pnum == prop_num:
+                if plen == 1:
+                    self.memory[prop_addr + 1] = val & 0xFF
+                else:
+                    # 2-byte (or oversized) property: write as big-endian word
+                    self.write_word(prop_addr + 1, val)
+                return
+            prop_addr += 1 + plen
+
+    def _do_read(self, text_buf: int, parse_buf: int) -> None:
+        """READ opcode handler (SREAD, VAR 0x04): populate game input buffers.
+
+        Called when waiting_for_input was set True by _dispatch_var opcode 0x04.
+        Consumes self.input_command (set by external caller before resuming),
+        writes the command text into the Z-machine's text buffer, and tokenizes
+        it into the parse buffer.
+
+        Text buffer layout (Z-machine spec §8.4.3, V3):
+          byte 0:   max chars the game can accept (set by the game, read-only here)
+          byte 1:   number of chars actually written (we write this)
+          bytes 2+: command bytes as lowercase ASCII, null-terminated
+
+        Parse buffer layout:
+          byte 0:   max tokens the game can accept (set by the game, read-only here)
+          byte 1:   number of tokens found (we write this)
+          entries of 4 bytes each:
+            bytes 0-1: dictionary address (big-endian word); 0 = word not in dictionary
+            byte 2:    length of the word in characters
+            byte 3:    position in the text buffer (1-indexed, spec §8.4.3)
+
+        We do not look up words in the dictionary — the Z-machine parser handles
+        that internally. We write 0x0000 as the dict address for all tokens, which
+        causes Zork's parser to search its own dictionary (correct behavior).
+        """
+        cmd = self.input_command.lower().strip()
+        self.input_command = ""      # consume command so it is not reused
+        self.waiting_for_input = False
+
+        # Echo the command to output, matching real terminal behavior
+        self._print_str(cmd + "\n")
+
+        # Write to text buffer (if address non-zero)
+        max_chars = self.memory[text_buf] if text_buf > 0 else 200
+        cmd_bytes = cmd.encode("ascii", errors="replace")[:max_chars]
+        if text_buf > 0:
+            self.memory[text_buf + 1] = len(cmd_bytes)
+            for i, b in enumerate(cmd_bytes):
+                self.memory[text_buf + 2 + i] = b
+            self.memory[text_buf + 2 + len(cmd_bytes)] = 0  # null-terminate
+
+        # Tokenize into parse buffer (up to 8 space-delimited tokens)
+        tokens = cmd.split()[:8]
+        if parse_buf > 0:
+            self.memory[parse_buf + 1] = len(tokens)
+            for i, word in enumerate(tokens):
+                offset = parse_buf + 2 + i * 4
+                # Dict address: 0 (unknown — Z-machine parser resolves)
+                self.write_word(offset, 0)
+                self.memory[offset + 2] = len(word)
+                # Position in text buffer: 1-indexed byte offset of word start
+                pos = cmd.find(word)
+                self.memory[offset + 3] = (pos + 1) if pos >= 0 else 0
