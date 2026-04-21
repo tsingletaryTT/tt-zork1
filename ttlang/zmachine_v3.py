@@ -73,6 +73,9 @@ class ZMachineV3:
         self.game_over: bool = False
         self.instruction_count: int = 0
         self.waiting_for_input: bool = False
+        # PC saved at the start of each instruction dispatch; used by READ to
+        # restore the PC when no input is available, so READ re-executes on resume.
+        self._instr_pc: int = self.initial_pc
 
     # ------------------------------------------------------------------
     # Memory access helpers
@@ -543,10 +546,21 @@ class ZMachineV3:
         opcode, a PC overflow, or a top-level return from the main routine).
         Also stops if self.waiting_for_input becomes True (set by READ opcode).
         After returning, accumulated output is in self.output.
+
+        Resume semantics: if input_command is set when interpret() is called
+        while waiting_for_input is True, the flag is cleared so the READ opcode
+        at the current PC will be re-executed to consume the provided input.
         """
+        # If the interpreter was paused waiting for input and input has now been
+        # provided, clear the flag. The PC was already backed up to the READ
+        # instruction by _do_read, so re-executing will process the new input.
+        if self.waiting_for_input and self.input_command:
+            self.waiting_for_input = False
+
         for _ in range(max_instructions):
             if not self.running or self.waiting_for_input:
                 break
+            self._instr_pc = self.pc  # save PC for READ back-up on no-input
             self._execute_one()
             self.instruction_count += 1
 
@@ -1246,6 +1260,81 @@ class ZMachineV3:
                 return
             prop_addr += 1 + plen
 
+    def _encode_zword(self, word: str) -> tuple[int, int]:
+        """Encode a word as two Z-machine dictionary words (4 bytes, 6 Z-chars).
+
+        V3 dictionary entries use exactly 6 Z-characters packed into two 16-bit
+        words (3 chars per word, 5 bits each). The last word has bit 15 set.
+        Words shorter than 6 chars are padded with Z-char 5 (shift code, used
+        as padding per the Z-machine spec §3.7).
+
+        Only lowercase alphabet (A0) characters are handled here since dictionary
+        lookups are always done after lowercasing. Non-alphabetic characters use
+        code 5 (padding) as a safe fallback.
+
+        Returns (word1, word2) where word2 has bit 15 set (end-of-string marker).
+        """
+        # Map each character to a 5-bit Z-char code.
+        # A0: a=6, b=7, ..., z=31. Space=0 (but not expected in words).
+        # Non-alphabetic (e.g. digits, punctuation): pad with 5.
+        codes: list[int] = []
+        for c in word[:6]:
+            if 'a' <= c <= 'z':
+                codes.append(6 + (ord(c) - ord('a')))
+            else:
+                codes.append(5)  # padding for non-alpha
+        # Pad to exactly 6 codes
+        while len(codes) < 6:
+            codes.append(5)
+
+        # Pack 3 codes per 16-bit word (bits 14-10, 9-5, 4-0)
+        w1 = (codes[0] << 10) | (codes[1] << 5) | codes[2]
+        w2 = (codes[3] << 10) | (codes[4] << 5) | codes[5]
+        w2 |= 0x8000  # bit 15 = end-of-string marker (required on last word)
+        return w1, w2
+
+    def _lookup_dictionary(self, word: str) -> int:
+        """Look up a word in the game's dictionary; return its byte address or 0.
+
+        Uses binary search on the sorted dictionary (Z-machine spec §13 requires
+        dictionary entries to be in sorted order of their encoded Z-string keys).
+
+        Dictionary layout (at self.dictionary_addr):
+          byte 0:    n = number of word-separator characters
+          bytes 1..n: separator character codes
+          byte n+1:  entry_length (bytes per entry; always 7 for V3: 4-byte key + 3 data)
+          2 bytes:   num_entries (big-endian)
+          entries:   sorted by their 4-byte Z-string key
+
+        Returns the byte address of the matching entry, or 0 if not found.
+        """
+        d = self.dictionary_addr
+        num_sep = self.memory[d]
+        entry_len = self.memory[d + 1 + num_sep]
+        num_entries = self.read_word(d + 2 + num_sep)
+        entries_base = d + 2 + num_sep + 2  # byte address of first entry
+
+        # Encode the lookup word to its 4-byte Z-string key (two words)
+        target_w1, target_w2 = self._encode_zword(word.lower())
+
+        # Binary search over the sorted entries
+        lo, hi = 0, num_entries - 1
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            entry_addr = entries_base + mid * entry_len
+            ew1 = self.read_word(entry_addr)
+            ew2 = self.read_word(entry_addr + 2)
+            if ew1 == target_w1 and ew2 == target_w2:
+                return entry_addr   # found
+            # Compare as a 32-bit unsigned key for ordering
+            entry_key  = (ew1  << 16) | ew2
+            target_key = (target_w1 << 16) | target_w2
+            if target_key < entry_key:
+                hi = mid - 1
+            else:
+                lo = mid + 1
+        return 0  # not found
+
     def _do_read(self, text_buf: int, parse_buf: int) -> None:
         """READ opcode handler (SREAD, VAR 0x04): populate game input buffers.
 
@@ -1260,8 +1349,10 @@ class ZMachineV3:
 
         Text buffer layout (Z-machine spec §8.4.3, V3):
           byte 0:   max chars the game can accept (set by the game, read-only here)
-          byte 1:   number of chars actually written (we write this)
-          bytes 2+: command bytes as lowercase ASCII, null-terminated
+          bytes 1+: command bytes as lowercase ASCII, null-terminated
+          (Note: V3 has NO length byte at offset 1; text starts immediately at byte 1.
+           V5+ added a length byte at offset 1 and moved text to byte 2+.
+           We follow the V3 layout here.)
 
         Parse buffer layout:
           byte 0:   max tokens the game can accept (set by the game, read-only here)
@@ -1269,7 +1360,8 @@ class ZMachineV3:
           entries of 4 bytes each:
             bytes 0-1: dictionary address (big-endian word); 0 = word not in dictionary
             byte 2:    length of the word in characters
-            byte 3:    position in the text buffer (1-indexed, spec §8.4.3)
+            byte 3:    position of word's first character in the text buffer (1-indexed,
+                       counting from text_buf byte 0; first text byte is at position 1)
 
         We do not look up words in the dictionary — the Z-machine parser handles
         that internally. We write 0x0000 as the dict address for all tokens, which
@@ -1279,6 +1371,10 @@ class ZMachineV3:
         so repeated identical words (e.g. "put egg in egg") get correct offsets.
         """
         if not self.input_command:
+            # No input available: back up PC to the start of this READ instruction
+            # so it will be re-executed (not skipped) when input arrives.
+            # _instr_pc is saved by interpret() before each _execute_one() call.
+            self.pc = self._instr_pc
             self.waiting_for_input = True
             return
         self.waiting_for_input = False
@@ -1289,16 +1385,19 @@ class ZMachineV3:
         # Echo the command to output, matching real terminal behavior
         self._print_str(cmd + "\n")
 
-        # Write to text buffer (if address non-zero)
+        # Write to text buffer (if address non-zero).
+        # V3 layout: byte 0 = max length (already set by game), bytes 1+ = text + NUL.
         max_chars = self.memory[text_buf] if text_buf > 0 else 200
         cmd_bytes = cmd.encode("ascii", errors="replace")[:max_chars]
         if text_buf > 0:
-            self.memory[text_buf + 1] = len(cmd_bytes)
             for i, b in enumerate(cmd_bytes):
-                self.memory[text_buf + 2 + i] = b
-            self.memory[text_buf + 2 + len(cmd_bytes)] = 0  # null-terminate
+                self.memory[text_buf + 1 + i] = b
+            self.memory[text_buf + 1 + len(cmd_bytes)] = 0  # null-terminate
 
-        # Tokenize into parse buffer (up to 8 space-delimited tokens)
+        # Tokenize into parse buffer (up to 8 space-delimited tokens).
+        # The game relies on parse buffer entries having correct dictionary addresses;
+        # writing 0 for unknown words causes Zork to fall through to "I don't know".
+        # We call _lookup_dictionary() to supply the real address where possible.
         tokens = cmd.split()[:8]
         if parse_buf > 0:
             self.memory[parse_buf + 1] = len(tokens)
@@ -1308,10 +1407,13 @@ class ZMachineV3:
             search_start = 0
             for i, word in enumerate(tokens):
                 offset = parse_buf + 2 + i * 4
-                # Dict address: 0 (unknown — Z-machine parser resolves)
-                self.write_word(offset, 0)
+                # Look up word in game's dictionary; 0 = not found (game handles gracefully)
+                dict_addr = self._lookup_dictionary(word)
+                self.write_word(offset, dict_addr)
                 self.memory[offset + 2] = len(word)
-                # Position in text buffer: 1-indexed byte offset of word start
+                # Position: 1-indexed byte offset of word's first char in text_buf.
+                # Text is stored at text_buf+1, so a word at cmd[0] is at text_buf+1,
+                # giving position = 1 (spec §8.4.3 counts from text_buf[0]).
                 pos = cmd.find(word, search_start)
                 if pos >= 0:
                     search_start = pos + len(word)
