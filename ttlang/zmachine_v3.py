@@ -137,7 +137,10 @@ class ZMachineV3:
     def set_var(self, var: int, value: int) -> None:
         value &= 0xFFFF
         if var == 0:
-            self.stack.append(value)
+            if self.stack:
+                self.stack[-1] = value  # spec: writing to var 0 replaces TOS
+            else:
+                self.stack.append(value)
         elif 1 <= var <= 15:
             if self.frames:
                 while len(self.frames[-1]["locals"]) <= var - 1:
@@ -724,7 +727,7 @@ class ZMachineV3:
             else:
                 sa = a if a < 0x8000 else a - 0x10000
                 sb = b if b < 0x8000 else b - 0x10000
-                self._store_result((sa % sb) & 0xFFFF)
+                self._store_result((sa - int(sa / sb) * sb) & 0xFFFF)
 
         # Unknown 2OP opcodes are silently skipped
 
