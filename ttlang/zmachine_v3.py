@@ -10,6 +10,7 @@ Architecture:
   - zork_ttlang.py: wraps ZMachineV3 in a TT-Lang operation for device execution
 """
 from __future__ import annotations
+import random
 
 
 class ZMachineV3:
@@ -854,6 +855,7 @@ class ZMachineV3:
           0x09 POP       — discard TOS
           0x0A QUIT      — end game execution
           0x0B NEW_LINE  — print newline character
+          0x0C SHOW_STATUS — no-op (status bar not rendered in line-based simulator)
           0x0D VERIFY    — V3 branch; always reports checksum OK (true)
         """
         if opcode == 0x00:   # RTRUE — return true (1) from current routine
@@ -916,6 +918,9 @@ class ZMachineV3:
         elif opcode == 0x0B: # NEW_LINE — output a newline character
             self._print_char("\n")
 
+        elif opcode == 0x0C: # SHOW_STATUS — no-op (status bar not rendered in line-based simulator)
+            pass
+
         elif opcode == 0x0D: # VERIFY (V3 branch) — checksum verification; always pass
             # We don't verify the checksum; just tell the game everything is fine.
             self._branch(True)
@@ -968,10 +973,9 @@ class ZMachineV3:
             self._put_prop(arg(0), arg(1), arg(2))
 
         elif opcode == 0x04: # READ (SREAD) — read player input
-            # Sets waiting_for_input so interpret() will pause after this instruction.
-            # The caller should set self.input_command, clear waiting_for_input,
-            # and call interpret() again to resume.
-            self.waiting_for_input = True
+            # _do_read handles waiting_for_input itself: if input_command is empty
+            # it sets the flag and returns; caller sets input_command and calls
+            # interpret() again to resume. Do NOT set the flag here.
             self._do_read(arg(0), arg(1))
 
         elif opcode == 0x05: # PRINT_CHAR — print single ZSCII character
@@ -991,7 +995,6 @@ class ZMachineV3:
             self._print_str(str(n))
 
         elif opcode == 0x07: # RANDOM — pseudo-random number generator
-            import random
             limit = arg(0)
             if limit > 0:
                 # Return random integer in 1..limit, store result
@@ -1246,8 +1249,12 @@ class ZMachineV3:
     def _do_read(self, text_buf: int, parse_buf: int) -> None:
         """READ opcode handler (SREAD, VAR 0x04): populate game input buffers.
 
-        Called when waiting_for_input was set True by _dispatch_var opcode 0x04.
-        Consumes self.input_command (set by external caller before resuming),
+        If self.input_command is empty (falsy), sets waiting_for_input = True and
+        returns immediately without consuming anything. The caller must set
+        self.input_command and call interpret() again to resume — the interpret()
+        loop will re-enter this handler once input is available.
+
+        When input IS present, clears waiting_for_input, consumes self.input_command,
         writes the command text into the Z-machine's text buffer, and tokenizes
         it into the parse buffer.
 
@@ -1267,10 +1274,17 @@ class ZMachineV3:
         We do not look up words in the dictionary — the Z-machine parser handles
         that internally. We write 0x0000 as the dict address for all tokens, which
         causes Zork's parser to search its own dictionary (correct behavior).
+
+        Token positions use a search_start cursor that advances past each found word,
+        so repeated identical words (e.g. "put egg in egg") get correct offsets.
         """
+        if not self.input_command:
+            self.waiting_for_input = True
+            return
+        self.waiting_for_input = False
+
         cmd = self.input_command.lower().strip()
         self.input_command = ""      # consume command so it is not reused
-        self.waiting_for_input = False
 
         # Echo the command to output, matching real terminal behavior
         self._print_str(cmd + "\n")
@@ -1288,11 +1302,17 @@ class ZMachineV3:
         tokens = cmd.split()[:8]
         if parse_buf > 0:
             self.memory[parse_buf + 1] = len(tokens)
+            # search_start advances past each found token so that repeated words
+            # (e.g. "put egg in egg") get correct 1-indexed positions rather than
+            # always finding the first occurrence.
+            search_start = 0
             for i, word in enumerate(tokens):
                 offset = parse_buf + 2 + i * 4
                 # Dict address: 0 (unknown — Z-machine parser resolves)
                 self.write_word(offset, 0)
                 self.memory[offset + 2] = len(word)
                 # Position in text buffer: 1-indexed byte offset of word start
-                pos = cmd.find(word)
+                pos = cmd.find(word, search_start)
+                if pos >= 0:
+                    search_start = pos + len(word)
                 self.memory[offset + 3] = (pos + 1) if pos >= 0 else 0
