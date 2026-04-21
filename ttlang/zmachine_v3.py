@@ -137,10 +137,7 @@ class ZMachineV3:
     def set_var(self, var: int, value: int) -> None:
         value &= 0xFFFF
         if var == 0:
-            if self.stack:
-                self.stack[-1] = value  # spec: writing to var 0 replaces TOS
-            else:
-                self.stack.append(value)
+            self.stack.append(value)  # spec §4.6: writing to var 0 pushes onto stack
         elif 1 <= var <= 15:
             if self.frames:
                 while len(self.frames[-1]["locals"]) <= var - 1:
@@ -906,8 +903,8 @@ class ZMachineV3:
             if pnum == prop_num:
                 if plen == 1:
                     return self.memory[prop_addr + 1]
-                elif plen == 2:
-                    return self.read_word(prop_addr + 1)
+                else:
+                    return self.read_word(prop_addr + 1)  # 2-byte or illegal multi-byte: read word
             prop_addr += 1 + plen
 
     def _get_prop_addr(self, obj_num: int, prop_num: int) -> int:
