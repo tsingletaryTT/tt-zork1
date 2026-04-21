@@ -43,3 +43,19 @@ def test_abbreviation_west_of_house():
     # Object 64 name should contain 'West' when decoded
     name = zm.get_object_name(64)
     assert "West" in name or "west" in name.lower(), f"Got: {name!r}"
+
+def test_interpret_returns_output():
+    """Running 200 instructions should produce some output."""
+    from ttlang.zmachine_v3 import ZMachineV3
+    zm = ZMachineV3(GAME_FILE.read_bytes())
+    zm.interpret(200)
+    text = "".join(zm.output)
+    assert len(text) > 0, "No output after 200 instructions"
+
+def test_interpret_zork_title():
+    """Running enough instructions should produce 'ZORK' in output."""
+    from ttlang.zmachine_v3 import ZMachineV3
+    zm = ZMachineV3(GAME_FILE.read_bytes())
+    zm.interpret(500)
+    text = "".join(zm.output)
+    assert "ZORK" in text, f"Expected 'ZORK' in output, got: {text[:200]!r}"

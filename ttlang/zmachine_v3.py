@@ -349,3 +349,286 @@ class ZMachineV3:
 
         # The Z-string name follows immediately at prop_ptr + 1
         return self.decode_zstring(prop_ptr + 1)
+
+    # ------------------------------------------------------------------
+    # Operand loading — Z-machine V3 instruction formats
+    # ------------------------------------------------------------------
+
+    def _load_operand(self, op_type: int) -> int:
+        """Load one operand. Types: 0=large const, 1=small const, 2=variable, 3=omitted.
+
+        Operand type encoding (Z-machine spec §4.2):
+          0b00 (0) → large constant (2 bytes, big-endian)
+          0b01 (1) → small constant (1 byte)
+          0b10 (2) → variable — read variable number from PC, then dereference
+          0b11 (3) → omitted (caller must not call for omitted operands)
+
+        Note: bit-test approach (& 2, & 1) matches Frotz's implementation and
+        handles any stray high bits safely — see frotz_os.c process.c lines 197-216.
+        """
+        if op_type & 2:      # bit 1 set → variable
+            return self.get_var(self.code_byte())
+        elif op_type & 1:    # bit 0 set → small constant (1 byte)
+            return self.code_byte()
+        else:                # 0b00 → large constant (2 bytes)
+            return self.code_word()
+
+    def _load_var_operands(self) -> list[int]:
+        """Load operands from the types byte used in VAR-form instructions.
+
+        In VAR form, a single byte immediately after the opcode byte encodes
+        up to four operand types (2 bits each, MSB first):
+          bits 7-6 → type of operand 0
+          bits 5-4 → type of operand 1
+          bits 3-2 → type of operand 2
+          bits 1-0 → type of operand 3
+        Type 3 (0b11) means omitted; once we see it, all remaining are also omitted.
+        """
+        types_byte = self.code_byte()
+        operands: list[int] = []
+        for shift in (6, 4, 2, 0):
+            t = (types_byte >> shift) & 3
+            if t == 3:  # omitted — stop here
+                break
+            operands.append(self._load_operand(t))
+        return operands
+
+    def _branch(self, condition: bool) -> None:
+        """Handle a branch instruction. Reads branch data from PC.
+
+        Branch encoding (Z-machine spec §4.7):
+          byte 0: bit 7 = branch-if-true flag (1=branch on true, 0=branch on false)
+                  bit 6 = short-offset flag (1=6-bit offset in this byte, 0=14-bit)
+                  bits 5-0 = offset (if bit 6 set) or high 6 bits of 14-bit offset
+
+          If bit 6 is clear, byte 1 provides the low 8 bits of the 14-bit offset.
+
+          Special offset values (after full decode):
+            0 → RFALSE (return false from current routine)
+            1 → RTRUE  (return true from current routine)
+            n → PC += n - 2  (relative jump; -2 because offset is from after branch bytes)
+
+          Sign extension for long form: the 14-bit offset is treated as a signed
+          integer (bit 13 is the sign bit), giving a range of -8192..+8191.
+        """
+        branch_byte = self.code_byte()
+        branch_if_true = bool(branch_byte & 0x80)
+        if branch_byte & 0x40:
+            # Short form: 6-bit offset in this byte
+            offset = branch_byte & 0x3F
+        else:
+            # Long form: 14-bit offset across two bytes
+            offset = ((branch_byte & 0x3F) << 8) | self.code_byte()
+            # Sign-extend: if bit 13 set, offset is negative
+            if offset & 0x2000:
+                offset -= 0x4000
+
+        if condition == branch_if_true:
+            if offset == 0:
+                self._do_ret(0)    # RFALSE
+            elif offset == 1:
+                self._do_ret(1)    # RTRUE
+            else:
+                self.pc += offset - 2
+
+    def _store_result(self, value: int) -> None:
+        """Read a result variable number from PC and store value there.
+
+        Many Z-machine instructions produce a result (e.g. ADD, CALL).
+        The variable to store into is encoded as the next byte after the
+        instruction's operands (and before any branch byte).
+        Variable 0 = top of stack (push), 1-15 = locals, 16+ = globals.
+        """
+        var = self.code_byte()
+        self.set_var(var, value)
+
+    # ------------------------------------------------------------------
+    # Output helpers
+    # ------------------------------------------------------------------
+
+    def _print_char(self, c: str) -> None:
+        """Append a single character to the output buffer."""
+        self.output.append(c)
+
+    def _print_str(self, s: str) -> None:
+        """Append a string to the output buffer."""
+        self.output.append(s)
+
+    def flush_output(self) -> str:
+        """Return accumulated output as a single string and clear the buffer.
+
+        Useful for interactive sessions: call this after interpret() to get
+        everything the game printed since the last flush.
+        """
+        text = "".join(self.output)
+        self.output.clear()
+        return text
+
+    # ------------------------------------------------------------------
+    # Call/return mechanism
+    # ------------------------------------------------------------------
+
+    def _do_call(self, packed_addr: int, args: list[int], store_var: int) -> None:
+        """Call a Z-machine routine.
+
+        packed_addr == 0 is a special case: by spec, calling address 0 is a
+        no-op that stores 0 (false) into store_var without creating a frame.
+
+        V3 uses word-packed addresses: multiply by 2 to get the byte address
+        of the routine. The routine starts with one byte giving the number of
+        local variables (0-15), then that many 2-byte default values, followed
+        by the instruction stream.
+
+        Any arguments supplied by the caller override the defaults, left-to-right.
+        Extra arguments beyond num_locals are ignored; missing arguments leave
+        the corresponding locals at their default values.
+
+        The call frame saved onto self.frames records everything needed to restore
+        state on return: the PC to return to, the local variables, and the
+        variable number where the return value should be stored.
+        """
+        if packed_addr == 0:
+            self.set_var(store_var, 0)
+            return
+
+        routine_addr = packed_addr * 2  # V3: word address → byte address
+        num_locals = self.memory[routine_addr]
+        routine_addr += 1
+
+        # Read default local values (one word each)
+        locals_: list[int] = []
+        for i in range(num_locals):
+            locals_.append(self.read_word(routine_addr))
+            routine_addr += 2
+
+        # Override with supplied arguments
+        for i, arg in enumerate(args):
+            if i < len(locals_):
+                locals_[i] = arg
+
+        # Push call frame and jump into routine body
+        self.frames.append({
+            "ret_pc": self.pc,
+            "locals": locals_,
+            "store_var": store_var,
+            "num_locals": num_locals,
+        })
+        self.pc = routine_addr
+
+    def _do_ret(self, value: int) -> None:
+        """Return value from the current routine.
+
+        Pops the innermost call frame, restores the saved PC, and stores
+        the return value into the frame's designated store variable.
+        If no frames remain (top-level return), halt execution.
+        """
+        if not self.frames:
+            self.running = False
+            return
+        frame = self.frames.pop()
+        self.pc = frame["ret_pc"]
+        self.set_var(frame["store_var"], value)
+
+    # ------------------------------------------------------------------
+    # interpret() — main execution loop
+    # ------------------------------------------------------------------
+
+    def interpret(self, max_instructions: int = 100) -> None:
+        """Execute up to max_instructions Z-machine instructions.
+
+        Stops early if self.running is set to False (e.g. by a QUIT or RESTART
+        opcode, a PC overflow, or a top-level return from the main routine).
+        Also stops if self.waiting_for_input becomes True (set by READ opcode).
+        After returning, accumulated output is in self.output.
+        """
+        for _ in range(max_instructions):
+            if not self.running:
+                break
+            self._execute_one()
+            self.instruction_count += 1
+
+    def _execute_one(self) -> None:
+        """Fetch and execute one Z-machine instruction.
+
+        Z-machine instruction encoding (spec §4):
+          Two high bits of opcode byte select the instruction form:
+            0b11xxxxxx (0xC0-0xFF) → VAR form  (opcode in low 5 bits)
+            0b10xxxxxx (0x80-0xBF) → Short form (opcode in low 4 bits)
+            0b00/01... (0x00-0x7F) → Long form  (opcode in low 5 bits, always 2OP)
+
+          Short form can be 1OP or 0OP depending on bits 4-5:
+            0b11 (3) in bits 5-4 → 0OP (zero operands)
+            other              → 1OP (one operand; bits 5-4 are its type)
+
+          Long form is always 2OP:
+            bit 6 → type of first operand  (0=small const, 1=variable)
+            bit 5 → type of second operand (0=small const, 1=variable)
+            Large constants are NOT valid in long form per the spec.
+
+        Special case: opcode byte 0xBE introduces EXT form (V5+). V3 should
+        never encounter it, but we skip the following byte as a safety measure.
+        """
+        opcode_byte = self.code_byte()
+
+        # EXT form (V5+, not V3) — treat as NOP to avoid garbling PC
+        if opcode_byte == 0xBE:
+            self.code_byte()
+            return
+
+        form = opcode_byte >> 6          # 0b11=VAR, 0b10=short, else long
+
+        if form == 0b11:
+            # VAR form: opcode in low 5 bits; operand-types byte follows
+            opcode = opcode_byte & 0x1F
+            operands = self._load_var_operands()
+            self._dispatch_var(opcode, operands)
+
+        elif form == 0b10:
+            # Short form: 1OP or 0OP
+            op_type = (opcode_byte >> 4) & 3
+            if op_type == 3:
+                # 0OP — opcode in low 4 bits, no operands
+                opcode = opcode_byte & 0x0F
+                self._dispatch_0op(opcode)
+            else:
+                # 1OP — bits 4-5 are operand type, opcode in low 4 bits
+                opcode = opcode_byte & 0x0F
+                operand = self._load_operand(op_type)
+                self._dispatch_1op(opcode, operand)
+
+        else:
+            # Long form: always 2OP; opcode in low 5 bits
+            # Bit 6 selects type for operand A, bit 5 for operand B.
+            # Mapping: bit set → variable (type 2), bit clear → small const (type 1).
+            # Large constants (type 0) do NOT appear in long form.
+            opcode = opcode_byte & 0x1F
+            type0 = 2 if (opcode_byte & 0x40) else 1
+            type1 = 2 if (opcode_byte & 0x20) else 1
+            a = self._load_operand(type0)
+            b = self._load_operand(type1)
+            self._dispatch_2op(opcode, a, b)
+
+    # ------------------------------------------------------------------
+    # Stub dispatchers — filled in by Tasks 5 and 6
+    # ------------------------------------------------------------------
+    # These are intentionally empty stubs. All instruction decoding and
+    # operand loading above is complete; the actual opcode implementations
+    # (PRINT, CALL, JE, ADD, etc.) are added in the next tasks.
+    # Having stubs here allows the interpret() loop to run without crashing,
+    # even though no output is produced yet.
+
+    def _dispatch_2op(self, opcode: int, a: int, b: int) -> None:
+        """Dispatch a 2OP instruction. Stub — implemented in Task 5."""
+        pass
+
+    def _dispatch_1op(self, opcode: int, a: int) -> None:
+        """Dispatch a 1OP instruction. Stub — implemented in Task 5."""
+        pass
+
+    def _dispatch_0op(self, opcode: int) -> None:
+        """Dispatch a 0OP instruction. Stub — implemented in Task 5."""
+        pass
+
+    def _dispatch_var(self, opcode: int, operands: list[int]) -> None:
+        """Dispatch a VAR-form instruction. Stub — implemented in Task 5."""
+        pass
