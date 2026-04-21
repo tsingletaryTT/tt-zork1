@@ -12,7 +12,6 @@ Architecture:
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional
-import struct
 
 
 class ZMachineV3:
@@ -84,14 +83,14 @@ class ZMachineV3:
 
     def read_word(self, addr: int) -> int:
         """Read big-endian 16-bit word."""
-        if addr < 0 or addr + 1 >= len(self.memory):
+        if addr < 0 or addr + 2 > len(self.memory):
             return 0
         return (self.memory[addr] << 8) | self.memory[addr + 1]
 
     def write_word(self, addr: int, value: int) -> None:
         """Write big-endian 16-bit word."""
         value &= 0xFFFF
-        if 0 <= addr < len(self.memory) - 1:
+        if 0 <= addr and addr + 2 <= len(self.memory):
             self.memory[addr]     = (value >> 8) & 0xFF
             self.memory[addr + 1] = value & 0xFF
 
