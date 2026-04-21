@@ -12,11 +12,16 @@ on a single Tensix core:
     compute    │  runs the Z-machine interpreter loop (stubbed → full impl)
     dm_writer  │  flushes interpreter output back to DRAM
 
-Buffer constants (byte sizes, match kernels/zork_interpreter_opt.cpp):
+Buffer constants (byte sizes, derived from kernels/zork_interpreter_opt.cpp):
     GAME_SIZE   = 87040   bytes  — zork1.z3 file (exact; already chunk-aligned)
     OUTPUT_SIZE = 16384   bytes  — output ring buffer (text printed by game)
     STATE_SIZE  = 16384   bytes  — interpreter state snapshot (PC, stack, …)
     INPUT_SIZE  =   256   bytes  — null-terminated command string from host
+
+TT-Lang values are based on the C++ kernel but may differ intentionally:
+    INPUT_SIZE uses 256 (vs 1024 in C++) — sufficient for Zork commands in the
+    Python/simulator path.  CHUNK_SIZE uses 512 (vs 4096 in C++) — smaller
+    chunks fit comfortably in the simulated L1 model.
 
 CHUNK_SIZE = 512 bytes.  All DFBs use block_count=2 (double-buffering) so
 dm_reader can prefetch the next block while compute processes the current one.
@@ -56,7 +61,8 @@ from sim import ttl
 from sim.ttnnsim import Tensor, ROW_MAJOR_LAYOUT
 
 # ---------------------------------------------------------------------------
-# Buffer size constants — must stay in sync with zork_interpreter_opt.cpp
+# Buffer size constants — derived from zork_interpreter_opt.cpp.
+# TT-Lang values may differ intentionally from the C++ kernel (see module doc).
 # ---------------------------------------------------------------------------
 
 # Exact size of zork1.z3 (87040 bytes), which is already a multiple of
@@ -65,12 +71,13 @@ GAME_SIZE: int = 87040
 
 # DFB block size in scalar (float32) elements.  512 bytes fits comfortably in
 # L1 (128 KB L1 on QB2; four 512-byte blocks = 2 KB for double-buffered DFBs).
-CHUNK_SIZE: int = 512
+# C++ kernel uses 4096; smaller chunks fit simulated L1 model.
+CHUNK_SIZE: int = 512     # 512-byte chunks (C++ kernel uses 4096; smaller fits simulated L1 model)
 N_GAME_CHUNKS: int = GAME_SIZE // CHUNK_SIZE   # 170
 
 OUTPUT_SIZE: int = 16384   # 16 KB — maximum output text per kernel invocation
 STATE_SIZE: int = 16384    # 16 KB — interpreter state (PC, stack, frames, …)
-INPUT_SIZE: int = 256      # command string (null-terminated ASCII)
+INPUT_SIZE: int = 256      # 256 bytes for command text (C++ kernel uses 1024; Zork commands fit in 256)
 
 
 # ---------------------------------------------------------------------------
@@ -96,27 +103,30 @@ def zmachine_kernel(
         dm_writer  — L1 → DRAM: output text back to device tensor
 
     DFB sizing:
-        game_dfb   — (CHUNK_SIZE,)  × block_count=2  ← double-buffered
-        out_dfb    — (CHUNK_SIZE,)  × block_count=2  ← double-buffered
-        state_dfb  — (CHUNK_SIZE,)  × block_count=1  ← single transfer
-        input_dfb  — (CHUNK_SIZE,)  × block_count=1  ← single transfer
+        game_dfb       — (CHUNK_SIZE,)  × block_count=2  ← double-buffered
+        out_dfb        — (CHUNK_SIZE,)  × block_count=2  ← double-buffered
+        state_dfb      — (CHUNK_SIZE,)  × block_count=1  ← single transfer
+        input_dfb      — (INPUT_SIZE,)  × block_count=1  ← single transfer
+        input_out_dfb  — (INPUT_SIZE,)  × block_count=1  ← input drain (stub only)
 
     State-machine notes:
         In the simulator every DFB block acquisition (reserve/wait) must be
         paired with a legally sequenced store()/copy() before the context
         manager exits.  The stub satisfies this by routing state and input
-        blocks through output_dfb.reserve() store() calls (marked TODO below).
-        When Task 10 replaces the stub, those store() calls become real
-        interpreter state-restore and command-parse operations.
+        blocks through DFB store() calls (marked TODO below).  input_out_dfb
+        exists solely because input_dfb (INPUT_SIZE=256) and out_dfb
+        (CHUNK_SIZE=512) have incompatible shapes — store() requires matching
+        tile counts.  When Task 10 replaces the stub, the input block is parsed
+        directly without routing through a separate output DFB.
 
     Stub behaviour (Task 9):
         Only the first CHUNK_SIZE bytes of game data are processed.
-        dm_reader loads: state[0:CHUNK_SIZE], input[0:CHUNK_SIZE],
+        dm_reader loads: state[0:CHUNK_SIZE], input[0:INPUT_SIZE],
                          game[0:CHUNK_SIZE].
-        compute:         state → out (scratch), input → out (scratch),
-                         game  → out (real output).
-        dm_writer:       writes all three out blocks back to output[0:CHUNK_SIZE]
-                         (the final write is the real game-header payload).
+        compute:         state → out_dfb (scratch), input → input_out_dfb (scratch),
+                         game  → out_dfb (real output).
+        dm_writer:       drains out_dfb[0] (state scratch), input_out_dfb[0]
+                         (input scratch), out_dfb[1] (game payload — final write wins).
 
     Full behaviour (Task 10 — TODO):
         dm_reader loads all N_GAME_CHUNKS=170 game chunks in a loop.
@@ -136,7 +146,15 @@ def zmachine_kernel(
     # Single-block buffers for state and input (no pipelining needed; each
     # is transferred once per kernel invocation).
     state_dfb = ttl.make_dataflow_buffer_like(state,     shape=(CHUNK_SIZE,), block_count=1)
-    input_dfb = ttl.make_dataflow_buffer_like(input_buf, shape=(CHUNK_SIZE,), block_count=1)
+    input_dfb = ttl.make_dataflow_buffer_like(input_buf, shape=(INPUT_SIZE,), block_count=1)
+
+    # Dedicated output DFB for the input-drain step.  input_dfb has shape
+    # (INPUT_SIZE,) = 256 elements, which differs from out_dfb's (CHUNK_SIZE,)
+    # = 512 elements.  The DFB state machine requires store() source/destination
+    # shapes to match, so a separate INPUT_SIZE-shaped output DFB is used for
+    # the stub's input pass-through (step 2 in compute).  In Task 10 this DFB
+    # is replaced by direct parsing of the input block into ZMachineV3 fields.
+    input_out_dfb = ttl.make_dataflow_buffer_like(output, shape=(INPUT_SIZE,), block_count=1)
 
     # ------------------------------------------------------------------
     # Compute thread
@@ -150,12 +168,14 @@ def zmachine_kernel(
         .wait() be used as a store() source before the context manager exits.
         The stub satisfies this requirement with three store() calls:
 
-            1.  state_blk  → out_blk  (scratch write; TODO: restore state)
-            2.  input_blk  → out_blk  (scratch write; TODO: parse command)
-            3.  game_blk   → out_blk  (real output:  first 512 game bytes)
+            1.  state_blk  → out_dfb block     (scratch write; TODO: restore state)
+            2.  input_blk  → input_out_dfb blk (scratch write; TODO: parse command)
+            3.  game_blk   → out_dfb block     (real output:  first CHUNK_SIZE bytes)
 
-        The dm_writer thread writes all three output blocks back to DRAM;
-        only the last one carries meaningful payload.
+        Steps 1 and 3 use out_dfb (CHUNK_SIZE=512); step 2 uses input_out_dfb
+        (INPUT_SIZE=256) because store() requires source and destination shapes
+        to have the same tile count.  The dm_writer thread drains all three
+        blocks; only the final out_dfb block (game data) carries meaningful payload.
 
         Full implementation (Task 10):
             Replace the three stub store() calls with:
@@ -170,9 +190,11 @@ def zmachine_kernel(
             o_blk.store(state_blk)   # STUB — will become state restore
 
         # Step 2: Load input command (stub: pass through to output).
+        # Uses input_out_dfb (INPUT_SIZE=256 elements) rather than out_dfb
+        # (CHUNK_SIZE=512 elements) because DFB store() requires matching shapes.
         # TODO (Task 10): set zm.input_command from input_blk bytes.
-        with input_dfb.wait() as input_blk, out_dfb.reserve() as o_blk:
-            o_blk.store(input_blk)   # STUB — will become command parse
+        with input_dfb.wait() as input_blk, input_out_dfb.reserve() as io_blk:
+            io_blk.store(input_blk)   # STUB — will become command parse
 
         # Step 3: Copy first game chunk to output — the primary stub payload.
         # This verifies that the DFB pipeline round-trips data correctly and
@@ -216,7 +238,7 @@ def zmachine_kernel(
 
         # 2. Input command string.
         with input_dfb.reserve() as i_blk:
-            tx = ttl.copy(input_buf[:CHUNK_SIZE], i_blk)
+            tx = ttl.copy(input_buf[:INPUT_SIZE], i_blk)
             tx.wait()
 
         # 3. Game data — first chunk only (stub).
@@ -233,10 +255,17 @@ def zmachine_kernel(
         """
         Transfer output data from L1 dataflow buffers back to DRAM.
 
-        Drains the three output blocks that compute() produces (stub):
-            Block 0 — state bytes (scratch; overwrites output[0:CHUNK_SIZE])
-            Block 1 — input bytes (scratch; overwrites output[0:CHUNK_SIZE])
-            Block 2 — game header bytes (real payload; final value in DRAM)
+        Drains the output blocks that compute() produces (stub):
+
+            out_dfb blocks (CHUNK_SIZE=512 each):
+                Block 0 — state bytes (scratch; overwrites output[0:CHUNK_SIZE])
+                Block 1 — game header bytes (real payload; final write wins)
+
+            input_out_dfb blocks (INPUT_SIZE=256 each):
+                Block 0 — input bytes (scratch; overwrites output[0:INPUT_SIZE])
+
+        Final-write-wins: the last copy to output[0:CHUNK_SIZE] is the game-header
+        block from out_dfb, which is the real payload the smoke test validates.
 
         Each block must be consumed via copy(o_blk, tensor_slice) to satisfy
         the DM-thread state machine (WAIT → COPY_SRC transition).
@@ -246,19 +275,22 @@ def zmachine_kernel(
             interpreter state snapshot for the next kernel invocation.
             Use output[0:text_length] for text and a separate state buffer.
         """
-        # Drain block 0: state scratch (final DRAM value will be overwritten).
+        # Drain out_dfb block 0: state chunk — overwritten by subsequent blocks.
+        # Final-write-wins: this value will not survive in DRAM.
         with out_dfb.wait() as o_blk:
             tx = ttl.copy(o_blk, output[:CHUNK_SIZE])
             tx.wait()
 
-        # Drain block 1: input scratch (overwritten again below).
-        with out_dfb.wait() as o_blk:
-            tx = ttl.copy(o_blk, output[:CHUNK_SIZE])
+        # Drain input_out_dfb block 0: input scratch — overwrites output[0:INPUT_SIZE].
+        # Final-write-wins: this value will not survive in DRAM (game block follows).
+        with input_out_dfb.wait() as io_blk:
+            tx = ttl.copy(io_blk, output[:INPUT_SIZE])
             tx.wait()
 
-        # Drain block 2: the real payload — first CHUNK_SIZE bytes of game data.
-        # After this write, output[0:CHUNK_SIZE] contains game[0:CHUNK_SIZE],
-        # which the smoke test uses to verify header fields are correct.
+        # Drain out_dfb block 1: final output — carries first CHUNK_SIZE bytes of
+        # game data in stub.  This is the only block whose value survives in DRAM
+        # (final write wins).  After this write, output[0:CHUNK_SIZE] contains
+        # game[0:CHUNK_SIZE], which the smoke test uses to verify header fields.
         with out_dfb.wait() as o_blk:
             tx = ttl.copy(o_blk, output[:CHUNK_SIZE])
             tx.wait()
@@ -326,7 +358,7 @@ def run_kernel_sim(
     game_tensor   = _bytes_to_sim_tensor(game_bytes, GAME_SIZE)
     state_tensor  = _bytes_to_sim_tensor(state_bytes, STATE_SIZE)  # zeros on cold start
     input_tensor  = _bytes_to_sim_tensor(
-        command.encode("ascii") + b"\x00", CHUNK_SIZE
+        command.encode("ascii") + b"\x00", INPUT_SIZE
     )
     # Output tensor must be at least CHUNK_SIZE elements (stub writes one chunk).
     output_tensor = _empty_sim_tensor(max(OUTPUT_SIZE, CHUNK_SIZE))
