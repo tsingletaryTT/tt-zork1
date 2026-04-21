@@ -19,8 +19,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from ttlang.zmachine_v3 import ZMachineV3
 
 
-INSTRUCTIONS_PER_TURN  = 5000   # max Z-machine steps per player turn
-INSTRUCTIONS_STARTUP   = 10000  # initial instructions before first prompt
+INSTRUCTIONS_PER_TURN = 5000   # generous budget per turn; Zork1 typical command ~200-500 steps
+INSTRUCTIONS_STARTUP  = 10000  # Zork1 init phase runs ~2000-5000 instructions before first READ
 
 
 def run_interactive(game_path: str) -> None:

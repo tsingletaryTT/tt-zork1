@@ -1265,8 +1265,9 @@ class ZMachineV3:
 
         V3 dictionary entries use exactly 6 Z-characters packed into two 16-bit
         words (3 chars per word, 5 bits each). The last word has bit 15 set.
-        Words shorter than 6 chars are padded with Z-char 5 (shift code, used
-        as padding per the Z-machine spec §3.7).
+        Words shorter than 6 chars are padded with Z-char 5 per spec §3.7.
+        Note: Z-char 5 is used as dictionary padding specifically — in this
+        context it signals end-of-word rather than acting as a shift code.
 
         Only lowercase alphabet (A0) characters are handled here since dictionary
         lookups are always done after lowercasing. Non-alphabetic characters use
@@ -1296,6 +1297,8 @@ class ZMachineV3:
     def _lookup_dictionary(self, word: str) -> int:
         """Look up a word in the game's dictionary; return its byte address or 0.
 
+        Returns 0 immediately if no dictionary is present (dictionary_addr is 0).
+
         Uses binary search on the sorted dictionary (Z-machine spec §13 requires
         dictionary entries to be in sorted order of their encoded Z-string keys).
 
@@ -1308,6 +1311,8 @@ class ZMachineV3:
 
         Returns the byte address of the matching entry, or 0 if not found.
         """
+        if not self.dictionary_addr:
+            return 0
         d = self.dictionary_addr
         num_sep = self.memory[d]
         entry_len = self.memory[d + 1 + num_sep]
@@ -1363,9 +1368,9 @@ class ZMachineV3:
             byte 3:    position of word's first character in the text buffer (1-indexed,
                        counting from text_buf byte 0; first text byte is at position 1)
 
-        We do not look up words in the dictionary — the Z-machine parser handles
-        that internally. We write 0x0000 as the dict address for all tokens, which
-        causes Zork's parser to search its own dictionary (correct behavior).
+        We look up each word in the game's dictionary and write the matching entry address
+        into the parse buffer. Words not found get address 0, which Zork handles gracefully
+        by printing "I don't know the word <word>."
 
         Token positions use a search_start cursor that advances past each found word,
         so repeated identical words (e.g. "put egg in egg") get correct offsets.
