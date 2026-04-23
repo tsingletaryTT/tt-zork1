@@ -74,3 +74,23 @@ def test_input_mapper_strips_whitespace():
     with patch("remix.input_mapper.call_ollama", return_value="  north  "):
         result = map_input("go north")
     assert result == "north"
+
+
+def test_output_remixer_passthrough_on_llm_failure():
+    from remix.output_remixer import remix_output
+    with patch("remix.output_remixer.call_ollama", return_value=None):
+        result = remix_output("open mailbox with my teeth", "Opening reveals a leaflet.")
+    assert result == "Opening reveals a leaflet."
+
+def test_output_remixer_returns_llm_result():
+    from remix.output_remixer import remix_output
+    creative = "The mailbox creaks open. Inside: a leaflet."
+    with patch("remix.output_remixer.call_ollama", return_value=creative):
+        result = remix_output("open mailbox with my teeth", "Opening reveals a leaflet.")
+    assert result == creative
+
+def test_output_remixer_passthrough_on_empty_llm():
+    from remix.output_remixer import remix_output
+    with patch("remix.output_remixer.call_ollama", return_value=""):
+        result = remix_output("look", "West of House\nYou are standing...")
+    assert "West of House" in result
