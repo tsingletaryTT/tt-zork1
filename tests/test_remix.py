@@ -53,3 +53,24 @@ def test_router_override_via_env(monkeypatch):
     # Restore
     monkeypatch.delenv("ZORK_LLM_MODEL")
     importlib.reload(router_mod)
+
+
+def test_input_mapper_passthrough_on_llm_failure():
+    from remix.input_mapper import map_input
+    with patch("remix.input_mapper.call_ollama", return_value=None):
+        result = map_input("open mailbox")
+    assert result == "open mailbox"
+
+
+def test_input_mapper_uses_llm_result():
+    from remix.input_mapper import map_input
+    with patch("remix.input_mapper.call_ollama", return_value="open mailbox"):
+        result = map_input("open the mailbox with my teeth")
+    assert result == "open mailbox"
+
+
+def test_input_mapper_strips_whitespace():
+    from remix.input_mapper import map_input
+    with patch("remix.input_mapper.call_ollama", return_value="  north  "):
+        result = map_input("go north")
+    assert result == "north"
