@@ -24,6 +24,18 @@ class BaseEngine(ABC):
         """Release any hardware or file resources."""
         ...
 
+    @property
+    @abstractmethod
+    def game_over(self) -> bool:
+        """True when the game has ended (death or victory)."""
+        ...
+
+    @property
+    @abstractmethod
+    def running(self) -> bool:
+        """False when the game has quit cleanly."""
+        ...
+
     def __enter__(self) -> "BaseEngine":
         return self
 

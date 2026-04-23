@@ -23,6 +23,7 @@ class SimEngine(BaseEngine):
         return self._zm.flush_output()
 
     def step(self, command: str) -> str:
+        # Returns empty string if called after game has ended (running=False)
         self._zm.input_command = command
         self._zm.interpret(INSTRUCTIONS_PER_TURN)
         return self._zm.flush_output()
