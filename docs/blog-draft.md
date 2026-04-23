@@ -1,6 +1,6 @@
 # We Put Zork on a Tenstorrent AI Chip (And Then Made It Weirder)
 
-*A story about Z-machines, RISC-V cores, and never being told NO again.*
+*A story about Z-machines, RISC-V cores, firmware watchdogs, and when to declare victory anyway.*
 
 ---
 
@@ -60,13 +60,7 @@ Set `page_size = buffer_size` for flat buffers. This cost us two sessions.
 
 ---
 
-## Stage 3 — The Hardware Runs It
-
-```bash
-python play.py --stage risc-v
-```
-
-[embed: stage3.cast]
+## Stage 3 — The Hardware Runs It (Mostly)
 
 Now we move the interpreter itself onto the chip. The Blackhole's RISC-V
 cores can run arbitrary C++ via TT-Lang's `ttnn.generic_op` +
@@ -76,12 +70,12 @@ to core (0,0).
 
 The hardware is thinking now.
 
-One constraint: the QB2 firmware watchdog limits kernel execution time. We
-found the safe limit empirically: 40 Z-machine instructions per invocation.
-The Zork opening text requires ~200 instructions, so we run 5 batches,
-persisting `ZMachineState` (PC + stack + call frames) to DRAM between
-invocations. Think of it like LLM token generation: short, bounded steps,
-state persisted between them.
+### What we proved
+
+We got the Zork opening text out of a RISC-V core. That text is real.
+The interpreter fetches 87 KB of game data from DRAM over the NoC, decodes
+Z-strings, manages a call stack, evaluates conditional branches — the whole
+thing — inside a RISC-V processor embedded in an AI accelerator.
 
 ```
 ZORK I: The Great Underground Empire
@@ -89,8 +83,43 @@ Infocom interactive fiction - a fantasy story
 Copyright (c) 1981, 1982, 1983 Infocom, Inc. All rights reserved.
 ```
 
-That text came out of a RISC-V core inside a Tenstorrent AI accelerator.
-We are unreasonably proud of this.
+We are unreasonably proud of that.
+
+### Where we got stuck
+
+Two hard constraints appeared on top of each other.
+
+**Constraint 1: firmware watchdog.** The QB2 firmware kills kernels that
+run too long. Through binary search we found `interpret(10)` — 10 Z-machine
+instructions — is the reliable ceiling. `interpret(20)` hangs at any batch
+where a `PRINT` opcode fires, because Z-string decoding adds enough overhead
+to tip the watchdog. The Zork opening requires ~400 instructions, so we need
+40+ batches.
+
+**Constraint 2: the third-invocation hang.** We batched execution by
+persisting `ZMachineState` (PC, stack, call frames, dynamic game memory) to
+a DRAM tensor and running multiple kernel invocations inside one device
+session. Batches 1 and 2 complete reliably. Batch 3 always hangs —
+regardless of instruction count, state content, or whether we reset the
+state tensor to all zeros. We confirmed this with a diagnostic script
+(`ttlang/diag_batch3.py`) that showed even a fresh-init batch 3 hangs.
+The firmware or device session state is accumulating something between
+`generic_op` calls that we cannot reset from Python.
+
+**Workaround attempt.** We restructured `run_zork()` to open and close the
+`ttnn` device for *each* batch, serialising state to host bytes between
+sessions. This eliminates the third-invocation hang — every batch is the
+first in its device session, so it always completes. But the device
+open/close overhead (~0.5s) means 40 batches takes ~20 seconds just in
+session setup, plus JIT recompilation on the first batch of each run.
+
+**Where we landed.** Stage 3 is a proof of concept, not a playable game.
+The RISC-V interpreter works. The state persistence works. The constraints
+are real firmware-level limits on the QB2 platform as we encountered it.
+The right next step is a firmware update conversation with the TT-Metal team
+— but that is out of scope for this demo.
+
+For the demo, we move on.
 
 ---
 
@@ -102,7 +131,13 @@ python play.py --stage sim --remix
 
 [embed: stage4.cast]
 
-Stages 1–3 prove the hardware. Stage 4 makes it worth playing.
+Stages 1–3 prove the hardware story. Stage 4 is where the demo gets
+interesting to play.
+
+The Z-machine runs on the host CPU (Stage 1 path) — fast, reliable, no
+firmware constraints. The hardware contribution here is the language model:
+an LLM running on the Tensix AI fabric of the same Blackhole chip,
+rewriting every game response in real time.
 
 Classic Zork is unforgiving. "Open the mailbox with my teeth" gets you
 "I don't understand that." "Fight the darkness with hope" gets you
@@ -110,9 +145,13 @@ Classic Zork is unforgiving. "Open the mailbox with my teeth" gets you
 
 In remix mode, the Z-machine still runs every turn. It's still the source
 of truth for game state — what exists, what you're carrying, what rooms
-connect. But we wrap every response through an LLM. The LLM receives what
-you typed *and* what the game responded, and rewrites the response to match
-your energy.
+connect. But we pass every response through an LLM on the **Tensix cores**
+and it rewrites the flavour text to match your energy. The LLM receives
+what you typed *and* what the game responded, then bends the voice of the
+world to meet you.
+
+RISC-V cores demonstrated the interpreter. Tensix cores power the remix.
+Both are on Tenstorrent silicon.
 
 ```
 > open the mailbox with my teeth
@@ -156,9 +195,11 @@ pip install torch requests
 # Stage 1 — no hardware needed
 python play.py --stage sim game/zork1.z3
 
-# Stage 4 — with LLM remix (requires Ollama)
-ollama pull qwen2.5:1.5b
-ollama pull qwen2.5:7b
+# Stage 4 — with LLM remix
+# Requires tt-inference-server (https://github.com/tenstorrent/tt-inference-server)
+# running Llama on your Tenstorrent chip's Tensix cores.
+# Default endpoint: http://localhost:8000/v1/chat/completions
+# To override (e.g. point at Ollama): export ZORK_LLM_URL=http://localhost:11434/v1/chat/completions
 python play.py --stage sim --remix game/zork1.z3
 
 # Stage 2 or 3 — requires Tenstorrent QB2 hardware

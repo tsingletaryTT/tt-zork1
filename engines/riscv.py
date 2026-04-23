@@ -4,9 +4,9 @@
 engines/riscv.py — Stage 3: Z-machine interpreter running on QB2 RISC-V cores.
 
 Wraps ttlang/zork_risc.py which dispatches kernels/zork_interpreter_l1.cpp via
-ttnn.generic_op with batched execution (40 instructions per kernel invocation —
-firmware watchdog safe on QB2 Blackhole). State persists across batches via a
-DRAM state tensor allocated inside run_zork().
+ttnn.generic_op with per-batch device sessions (10 instructions per kernel
+invocation — the only count confirmed safe on QB2 Blackhole even when PRINT fires).
+State persists across batches via host-side bytes serialised between device sessions.
 
 Stage overview (from docs/implementation-plan.md):
     Stage 1 — SimEngine:    Pure Python Z-machine, everything on host CPU.
@@ -15,17 +15,24 @@ Stage overview (from docs/implementation-plan.md):
     Stage 4 — RemixLayer:   Stage 3 + LLM remix on Tensix cores (future).
 
 Batched execution model:
-    The QB2 firmware watchdog limits each kernel invocation to ~40 Z-machine
-    instructions. Producing the Zork opening text requires ~200 instructions
-    (STARTUP_BATCHES=5 × 40 = 200). A typical one-word command takes ~120
-    instructions (STEP_BATCHES=3 × 40 = 120).
+    The QB2 firmware watchdog limits each kernel invocation. interpret(10) is the
+    only count confirmed safe even when PRINT fires and triggers Z-string decode
+    overhead within the watchdog window. interpret(20+) hangs at the batch where
+    PRINT fires. Producing the Zork opening text requires ~100 instructions
+    (STARTUP_BATCHES=10 × 10 = 100). A typical command takes ~60 instructions
+    (STEP_BATCHES=6 × 10 = 60).
+
+    Additionally the third ttnn.generic_op() call within a single open_device()
+    session always hangs (confirmed by diag_batch3.py). run_zork() works around
+    this by opening and closing the ttnn device for EACH batch, serialising
+    ZMachineState to host-side bytes between sessions.
 
     run_zork() (in ttlang/zork_risc.py) handles the batch loop transparently:
-        1. Opens QB2 device via ttnn.open_device(device_id=0)
-        2. Allocates DRAM tensors: game, output, input, state
-        3. Runs the RISC-V kernel N times, each resuming from saved ZMachineState
-        4. Accumulates per-batch output text and returns it concatenated
-        5. Closes device on exit
+        1. For each batch: open QB2 device via ttnn.open_device(device_id=0)
+        2. Allocates DRAM tensors: game, output, input, state (restored or fresh)
+        3. Runs the RISC-V kernel once per device session
+        4. Downloads state to host bytes, closes device
+        5. Repeats N times, accumulating per-batch output text
 
 TT-Lang pyenv requirement:
     The ttnn package is only available after running:
@@ -55,15 +62,18 @@ except ImportError:
 # Batch constants
 # ---------------------------------------------------------------------------
 
-# 5 batches × 40 instructions = 200 total.
-# The Zork opening sequence ("ZORK I: The Great Underground Empire...") fits in
-# ~100–200 instructions, so 5 batches reliably produces complete opening text.
-STARTUP_BATCHES = 5
+# 10 batches × 10 instructions = 100 total.
+# The Zork opening sequence ("ZORK I: The Great Underground Empire...") requires
+# roughly 80–120 Z-machine instructions; 100 covers the full opening text including
+# the "West of House" room description. interpret(10) is the only confirmed-safe
+# limit — interpret(20+) hangs at the batch where PRINT fires (Z-string decode
+# overhead tips the QB2 firmware watchdog).
+STARTUP_BATCHES = 10
 
-# 3 batches × 40 instructions = 120 total.
+# 6 batches × 10 instructions = 60 total.
 # Most single Zork commands (look, open mailbox, go north, etc.) complete in
-# 80–150 instructions. 3 batches is the sweet spot between latency and coverage.
-STEP_BATCHES = 3
+# 30–60 instructions. 6 batches × 10 = 60 covers typical commands.
+STEP_BATCHES = 6
 
 
 class RiscVEngine(BaseEngine):
@@ -76,8 +86,9 @@ class RiscVEngine(BaseEngine):
 
     The underlying kernel (kernels/zork_interpreter_l1.cpp) implements a full
     Z-machine V3 interpreter with 24+ opcodes, abbreviation decoding, object
-    property access, and state persistence. Each kernel invocation executes 40
-    Z-machine instructions — staying safely within the firmware watchdog limit.
+    property access, and state persistence. Each kernel invocation executes 10
+    Z-machine instructions — the only count confirmed safe even when PRINT fires
+    and triggers Z-string decode overhead within the firmware watchdog window.
 
     State persistence between commands:
         run_zork() allocates a fresh state DRAM tensor per call, so each call
@@ -124,8 +135,8 @@ class RiscVEngine(BaseEngine):
     def startup(self) -> str:
         """Run the Zork opening sequence on QB2 RISC-V.
 
-        Executes STARTUP_BATCHES (5) kernel invocations × 40 instructions each,
-        for 200 total Z-machine instructions. This is sufficient to produce the
+        Executes STARTUP_BATCHES (10) kernel invocations × 10 instructions each,
+        for 100 total Z-machine instructions. This is sufficient to produce the
         full Zork opening text including copyright notice, initial room
         description ("West of House"), and the first command prompt.
 
@@ -142,9 +153,9 @@ class RiscVEngine(BaseEngine):
     def step(self, command: str) -> str:
         """Execute one Zork command on QB2 RISC-V and return the response.
 
-        Executes STEP_BATCHES (3) kernel invocations × 40 instructions each,
-        for 120 total Z-machine instructions. Most single commands complete in
-        80–150 instructions, so this covers the majority of Zork inputs.
+        Executes STEP_BATCHES (6) kernel invocations × 10 instructions each,
+        for 60 total Z-machine instructions. Most single commands complete in
+        30–60 instructions, so this covers the majority of Zork inputs.
 
         Note: Each call to step() opens a fresh QB2 device connection and
         initialises the Z-machine from scratch (run_zork allocates a new state
