@@ -96,3 +96,31 @@ def test_output_remixer_passthrough_on_empty_llm():
     with patch("remix.output_remixer.call_ollama", return_value=""):
         result = remix_output("look", "West of House\nYou are standing...")
     assert "West of House" in result
+
+
+def test_ascii_artist_returns_string():
+    from remix.ascii_artist import AsciiArtist
+    artist = AsciiArtist()
+    mock_art = "   _____\n  |     |\n  |_____|"
+    with patch("remix.ascii_artist.call_ollama", return_value=mock_art):
+        result = artist.get("West of House", "You are standing in a field.")
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_ascii_artist_caches_per_room():
+    from remix.ascii_artist import AsciiArtist
+    artist = AsciiArtist()
+    mock_art = "   ___\n  |   |\n  |___|"
+    with patch("remix.ascii_artist.call_ollama", return_value=mock_art) as mock_llm:
+        artist.get("Forest", "Trees everywhere.")
+        artist.get("Forest", "Trees everywhere.")
+    assert mock_llm.call_count == 1   # second call is cached
+
+
+def test_ascii_artist_returns_empty_on_llm_failure():
+    from remix.ascii_artist import AsciiArtist
+    artist = AsciiArtist()
+    with patch("remix.ascii_artist.call_ollama", return_value=None):
+        result = artist.get("Cave", "Dark cave.")
+    assert result == ""
