@@ -172,7 +172,8 @@ def test_remix_layer_process_calls_mapper_and_remixer():
     from remix.mode import RemixLayer
     layer = RemixLayer()
     with patch("remix.mode.map_input", return_value="open mailbox") as mock_map, \
-         patch("remix.mode.remix_output", return_value="Creative response\n") as mock_remix:
+         patch("remix.mode.remix_output", return_value="Creative response\n") as mock_remix, \
+         patch.object(layer._artist, "get", return_value=""):
         result = layer.process("open the mailbox please", "The mailbox is now open.")
     mock_map.assert_called_once_with("open the mailbox please")
     mock_remix.assert_called_once()

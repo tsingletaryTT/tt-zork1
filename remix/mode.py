@@ -38,7 +38,7 @@ from remix.narrative_enhancer import NarrativeEnhancer
 
 # Heuristics to detect a room-entry response (the Z-machine sends the full
 # room description each time you enter a new location).
-_ROOM_MARKERS = ("you are", "you're", "this is", "it is", "the ", "you can see")
+_ROOM_MARKERS = ("you are", "you're", "this is", "it is", "you can see")
 
 
 def _looks_like_room_entry(text: str) -> bool:
@@ -142,7 +142,7 @@ class RemixLayer:
 
         # Detect death/victory for milestone postcards.
         low = zork_response.lower()
-        if any(w in low for w in ("you have died", "you are dead", "score:")):
+        if "you have died" in low or "**** you" in low:
             room_name = _extract_room_name(zork_response)
             self._enhancer.record(room_name, "death", zork_response[:200])
         if "congratulations" in low or "you have won" in low:
