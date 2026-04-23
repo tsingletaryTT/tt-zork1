@@ -126,3 +126,35 @@ def test_ascii_artist_returns_empty_on_llm_failure():
         _ = artist.get("Cave", "Dark cave.")   # second call — must not re-invoke LLM
     assert result == ""
     assert mock_llm.call_count == 1   # empty string was cached, no retry
+
+
+def test_narrative_enhancer_generates_postcard():
+    from remix.narrative_enhancer import NarrativeEnhancer
+    ne = NarrativeEnhancer()
+    mock_card = "I arrived at the white house as evening fell..."
+    with patch("remix.narrative_enhancer.call_ollama", return_value=mock_card):
+        ne.record("West of House", "arrival", "First location")
+    cards = ne.get_postcards()
+    assert len(cards) == 1
+    assert cards[0]["text"] == mock_card
+
+
+def test_narrative_enhancer_no_duplicate_moment_types():
+    from remix.narrative_enhancer import NarrativeEnhancer
+    ne = NarrativeEnhancer()
+    with patch("remix.narrative_enhancer.call_ollama", return_value="postcard text"):
+        ne.record("West of House", "arrival", "first")
+        ne.record("North of House", "arrival", "second")  # same type, ignored
+    assert len(ne.get_postcards()) == 1
+
+
+def test_personas_has_four_entries():
+    from remix.personas import PERSONAS
+    assert len(PERSONAS) == 4
+
+
+def test_personas_have_required_keys():
+    from remix.personas import PERSONAS
+    for p in PERSONAS.values():
+        assert "name" in p
+        assert "system_prompt" in p
