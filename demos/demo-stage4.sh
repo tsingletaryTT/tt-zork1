@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# demo-stage4.sh — Stage 4: LLM Remix layer — the punchline
+# Record with: asciinema rec -t "Zork on Tenstorrent — Stage 4" demos/stage4.cast
+set -e
+cd "$(dirname "$0")/.."
+source ~/code/tt-lang/build/env/activate
+
+echo ""
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║  STAGE 4 — LLM Remix: Never Be Told NO Again               ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+sleep 2
+echo "  Starting in CLASSIC mode — then switching to REMIX live."
+echo ""
+sleep 3
+
+{
+  sleep 5
+  echo "/classic"        # confirm we start classic
+  sleep 2
+  echo "open mailbox"    # classic: raw Z-machine response
+  sleep 3
+  echo "/remix"          # switch to remix mode LIVE
+  sleep 2
+  echo "open the mailbox with my teeth"  # remix: creative response
+  sleep 5
+  echo "eat the leaflet"                 # something Zork wouldn't allow
+  sleep 5
+  echo "fight the darkness with hope"    # poetic nonsense — LLM handles it
+  sleep 5
+  echo "quit"
+} | python play.py --stage sim --remix --game game/zork1.z3
