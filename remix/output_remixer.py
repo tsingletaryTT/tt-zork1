@@ -21,7 +21,10 @@ def remix_output(user_input: str, zork_response: str) -> str:
     Returns the remixed text, or the original zork_response if the LLM
     is unavailable or returns nothing useful.
     """
-    user_msg = f"PLAYER: {user_input}\nGAME: {zork_response}"
+    user_msg = (
+        f"PLAYER: {user_input}\n"
+        f"GAME:\n{zork_response}"
+    )
     result = call_ollama(
         system=_SYSTEM_PROMPT,
         user=user_msg,

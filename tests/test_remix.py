@@ -82,12 +82,14 @@ def test_output_remixer_passthrough_on_llm_failure():
         result = remix_output("open mailbox with my teeth", "Opening reveals a leaflet.")
     assert result == "Opening reveals a leaflet."
 
+
 def test_output_remixer_returns_llm_result():
     from remix.output_remixer import remix_output
     creative = "The mailbox creaks open. Inside: a leaflet."
     with patch("remix.output_remixer.call_ollama", return_value=creative):
         result = remix_output("open mailbox with my teeth", "Opening reveals a leaflet.")
     assert result == creative
+
 
 def test_output_remixer_passthrough_on_empty_llm():
     from remix.output_remixer import remix_output
