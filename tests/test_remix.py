@@ -166,3 +166,30 @@ def test_narrative_enhancer_record_survives_llm_exception():
     with patch("remix.narrative_enhancer.call_ollama", side_effect=RuntimeError("timeout")):
         ne.record("West of House", "arrival", "first time")  # must not raise
     assert ne.get_postcards() == []
+
+
+def test_remix_layer_process_calls_mapper_and_remixer():
+    from remix.mode import RemixLayer
+    layer = RemixLayer()
+    with patch("remix.mode.map_input", return_value="open mailbox") as mock_map, \
+         patch("remix.mode.remix_output", return_value="Creative response\n") as mock_remix:
+        result = layer.process("open the mailbox please", "The mailbox is now open.")
+    mock_map.assert_called_once_with("open the mailbox please")
+    mock_remix.assert_called_once()
+    assert result == "Creative response\n"
+
+
+def test_remix_layer_passthrough_when_inactive():
+    from remix.mode import RemixLayer
+    layer = RemixLayer()
+    layer.active = False
+    result = layer.process("open mailbox", "The mailbox is now open.")
+    assert result == "The mailbox is now open."
+
+
+def test_remix_layer_on_game_end_calls_display():
+    from remix.mode import RemixLayer
+    layer = RemixLayer()
+    with patch.object(layer._enhancer, "display") as mock_display:
+        layer.on_game_end()
+    mock_display.assert_called_once()
