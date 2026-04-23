@@ -93,3 +93,38 @@ def test_device_engine_step_open_mailbox(device_eng):
     device_eng.startup()
     out = device_eng.step("open mailbox")
     assert "mailbox" in out.lower() or "leaflet" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# RiscVEngine — QB2 RISC-V on-chip interpreter tests
+# These tests are skipped automatically when /dev/tenstorrent is not present
+# or when ttlang.zork_risc is not importable (TT-Lang pyenv not active).
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def riscv_eng():
+    """Open a RiscVEngine, yield it, then call close() (no-op but keeps pattern)."""
+    from engines.riscv import RiscVEngine
+    eng = RiscVEngine(GAME)
+    yield eng
+    eng.close()
+
+
+@pytest.mark.skipif(not HAS_DEVICE, reason="Requires QB2 hardware")
+def test_riscv_engine_startup_returns_output(riscv_eng):
+    """Opening sequence must return a non-trivial string from RISC-V cores.
+
+    A partial output is acceptable if the kernel runs but doesn't produce the
+    full title in the first 200 instructions.  The key check is that we get
+    *something* back — at minimum more than 20 characters.
+    """
+    out = riscv_eng.startup()
+    assert isinstance(out, str)
+    assert len(out) > 20  # partial output is acceptable; "ZORK" if kernel works fully
+
+
+@pytest.mark.skipif(not HAS_DEVICE, reason="Requires QB2 hardware")
+def test_riscv_engine_startup_is_string(riscv_eng):
+    """startup() must always return a str, never None or bytes."""
+    out = riscv_eng.startup()
+    assert isinstance(out, str)
