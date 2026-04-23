@@ -84,21 +84,29 @@ class DeviceEngine(BaseEngine):
         # Open the first Blackhole device (chip 0).
         self._device = ttnn.open_device(device_id=0)
 
-        # Upload game binary to DRAM.
-        tensor = _game_to_device(game_bytes, self._device)
+        # Wrap all post-open initialization in try/except so that any failure
+        # (DRAM upload error, round-trip mismatch, interpreter init crash, etc.)
+        # closes the device handle before re-raising, preventing a handle leak.
+        try:
+            # Upload game binary to DRAM.
+            tensor = _game_to_device(game_bytes, self._device)
 
-        # Verify the round-trip: the first 8 header bytes must match exactly.
-        # This catches DRAM page fragmentation or bfloat16 precision issues.
-        dram_bytes = _device_to_bytes(tensor)
-        assert dram_bytes[:8] == bytearray(game_bytes[:8]), "DRAM round-trip mismatch"
+            # Verify the round-trip: the first 8 header bytes must match exactly.
+            # This catches DRAM page fragmentation or bfloat16 precision issues.
+            dram_bytes = _device_to_bytes(tensor)
+            assert dram_bytes[:8] == bytearray(game_bytes[:8]), "DRAM round-trip mismatch"
 
-        # Record the DRAM buffer address for documentation / future use by
-        # on-chip kernels that need the physical address of the game data.
-        self._dram_addr = tensor.buffer_address()
+            # Record the DRAM buffer address for documentation / future use by
+            # on-chip kernels that need the physical address of the game data.
+            self._dram_addr = tensor.buffer_address()
 
-        # Construct the interpreter from the verified DRAM-backed bytes.
-        # The Python host runs the Z-machine logic; data originated on silicon.
-        self._zm = ZMachineV3(bytes(dram_bytes))
+            # Construct the interpreter from the verified DRAM-backed bytes.
+            # The Python host runs the Z-machine logic; data originated on silicon.
+            self._zm = ZMachineV3(bytes(dram_bytes))
+        except Exception:
+            ttnn.close_device(self._device)
+            self._device = None
+            raise
 
     def startup(self) -> str:
         """Run the game's initialization sequence and return the opening text.
