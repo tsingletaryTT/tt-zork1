@@ -31,15 +31,21 @@ def _render_postcards(cards: list[dict]) -> str:
         loc = card["location"]
         text = card["text"]
         lines.append(f"║ {loc:<{_WIDTH}} ║")
-        # Word-wrap text to _WIDTH chars
+        # Word-wrap text to _WIDTH chars; hard-wrap oversized words
         words = text.split()
         line_buf = ""
         for word in words:
-            if len(line_buf) + len(word) + 1 > _WIDTH:
-                lines.append(f"║ {line_buf:<{_WIDTH}} ║")
+            candidate = f"{line_buf} {word}".strip() if line_buf else word
+            if len(candidate) > _WIDTH:
+                if line_buf:
+                    lines.append(f"║ {line_buf:<{_WIDTH}} ║")
+                # Hard-wrap oversized words
+                while len(word) > _WIDTH:
+                    lines.append(f"║ {word[:_WIDTH]:<{_WIDTH}} ║")
+                    word = word[_WIDTH:]
                 line_buf = word
             else:
-                line_buf = f"{line_buf} {word}".strip()
+                line_buf = candidate
         if line_buf:
             lines.append(f"║ {line_buf:<{_WIDTH}} ║")
         lines.append(f"║ {'':<{_WIDTH}} ║")
@@ -61,12 +67,15 @@ class NarrativeEnhancer:
         prompt = (
             f"LOCATION: {location}\nMOMENT: {moment_type}\nCONTEXT: {context}"
         )
-        text = call_ollama(
-            system=_SYSTEM_PROMPT,
-            user=prompt,
-            model=route("postcard"),
-            temperature=0.85,
-        )
+        try:
+            text = call_ollama(
+                system=_SYSTEM_PROMPT,
+                user=prompt,
+                model=route("postcard"),
+                temperature=0.85,
+            )
+        except Exception:
+            return
         if text and text.strip():
             self._postcards.append(
                 {"location": location, "moment_type": moment_type, "text": text.strip()}

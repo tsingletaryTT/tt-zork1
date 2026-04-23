@@ -158,3 +158,11 @@ def test_personas_have_required_keys():
     for p in PERSONAS.values():
         assert "name" in p
         assert "system_prompt" in p
+
+
+def test_narrative_enhancer_record_survives_llm_exception():
+    from remix.narrative_enhancer import NarrativeEnhancer
+    ne = NarrativeEnhancer()
+    with patch("remix.narrative_enhancer.call_ollama", side_effect=RuntimeError("timeout")):
+        ne.record("West of House", "arrival", "first time")  # must not raise
+    assert ne.get_postcards() == []
