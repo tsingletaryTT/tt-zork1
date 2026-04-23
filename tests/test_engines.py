@@ -104,6 +104,7 @@ def test_device_engine_step_open_mailbox(device_eng):
 @pytest.fixture
 def riscv_eng():
     """Open a RiscVEngine, yield it, then call close() (no-op but keeps pattern)."""
+    pytest.importorskip("ttlang.zork_risc", reason="TT-Lang pyenv not active")
     from engines.riscv import RiscVEngine
     eng = RiscVEngine(GAME)
     yield eng
