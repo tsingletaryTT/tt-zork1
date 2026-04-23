@@ -5,6 +5,11 @@ set -e
 cd "$(dirname "$0")/.."
 source ~/code/tt-lang/build/env/activate
 
+# LLM backend: tt-inference-server running Llama on Tensix cores.
+# Override ZORK_LLM_URL to point at Ollama or any OpenAI-compatible server.
+export ZORK_LLM_URL="${ZORK_LLM_URL:-http://localhost:8001/v1/chat/completions}"
+export ZORK_LLM_MODEL="${ZORK_LLM_MODEL:-meta-llama/Llama-3.1-8B-Instruct}"
+
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║  STAGE 4 — LLM Remix: Never Be Told NO Again               ║"
