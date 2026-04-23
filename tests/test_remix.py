@@ -121,6 +121,8 @@ def test_ascii_artist_caches_per_room():
 def test_ascii_artist_returns_empty_on_llm_failure():
     from remix.ascii_artist import AsciiArtist
     artist = AsciiArtist()
-    with patch("remix.ascii_artist.call_ollama", return_value=None):
+    with patch("remix.ascii_artist.call_ollama", return_value=None) as mock_llm:
         result = artist.get("Cave", "Dark cave.")
+        _ = artist.get("Cave", "Dark cave.")   # second call — must not re-invoke LLM
     assert result == ""
+    assert mock_llm.call_count == 1   # empty string was cached, no retry
