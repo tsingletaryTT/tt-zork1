@@ -8,7 +8,7 @@ wall for creative inputs.
 """
 from __future__ import annotations
 from pathlib import Path
-from remix.llm import call_ollama
+from remix.llm import call_llm
 from remix.router import route
 
 _SYSTEM_PROMPT = (
@@ -22,7 +22,7 @@ def map_input(user_input: str) -> str:
     Returns the LLM-mapped command, or the original input if the LLM
     is unavailable or returns nothing useful.
     """
-    result = call_ollama(
+    result = call_llm(
         system=_SYSTEM_PROMPT,
         user=user_input,
         model=route("map"),

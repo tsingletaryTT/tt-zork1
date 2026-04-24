@@ -7,7 +7,7 @@ the LLM is unavailable.
 """
 from __future__ import annotations
 from pathlib import Path
-from remix.llm import call_ollama
+from remix.llm import call_llm
 from remix.router import route
 
 _SYSTEM_PROMPT = (
@@ -25,7 +25,7 @@ def remix_output(user_input: str, zork_response: str) -> str:
         f"PLAYER: {user_input}\n"
         f"GAME:\n{zork_response}"
     )
-    result = call_ollama(
+    result = call_llm(
         system=_SYSTEM_PROMPT,
         user=user_msg,
         model=route("remix"),

@@ -81,6 +81,32 @@ class DeviceEngine(BaseEngine):
         super().__init__(game_path)
         game_bytes = Path(game_path).read_bytes()
 
+        # Verify at least one device is visible before attempting to open it.
+        # A topology error here means the cluster descriptor was generated for a
+        # different hardware configuration — e.g. descriptor says P300x4 (8 chips)
+        # but only P300x2 (4 chips) is installed.  Fix:
+        #   source ~/code/tt-lang/build/env/activate
+        #   python -c "import ttnn; ttnn.utils.generate_cluster_descriptor()"
+        # or set TT_METAL_CLUSTER_DESCRIPTOR_PATH to a matching descriptor file.
+        try:
+            num_devices = ttnn.GetNumAvailableDevices()
+        except Exception as e:
+            raise RuntimeError(
+                "ttnn topology error — cluster descriptor likely does not match hardware.\n"
+                "  Chips detected vs descriptor mismatch (e.g. P300x2 where P300x4 expected).\n"
+                "  Fix: regenerate the cluster descriptor:\n"
+                "    source ~/code/tt-lang/build/env/activate\n"
+                "    python -c \"import ttnn; ttnn.utils.generate_cluster_descriptor()\"\n"
+                "  Or set: TT_METAL_CLUSTER_DESCRIPTOR_PATH=/path/to/descriptor.yaml\n"
+                f"  (Original error: {e})"
+            ) from e
+
+        if num_devices < 1:
+            raise RuntimeError(
+                "No Tenstorrent devices found — is /dev/tenstorrent present?\n"
+                "  Run: tt-smi -s  to confirm device visibility."
+            )
+
         # Open the first Blackhole device (chip 0).
         self._device = ttnn.open_device(device_id=0)
 

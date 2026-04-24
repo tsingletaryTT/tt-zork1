@@ -1,31 +1,32 @@
 # remix/llm.py
-"""Thin Ollama HTTP client for the remix layer.
+"""LLM client for the remix layer — targets tt-inference-server by default.
 
-Uses the OpenAI-compatible /v1/chat/completions endpoint that Ollama exposes.
-All functions return None on any error — callers must handle None gracefully
-so the game remains playable when the LLM is unavailable.
+Uses the OpenAI-compatible /v1/chat/completions endpoint. Override the URL
+via ZORK_LLM_URL to point at any compatible server (tt-inference-server,
+Ollama, etc.). All functions return None on any error — callers must handle
+None gracefully so the game remains playable when the LLM is unavailable.
 """
 from __future__ import annotations
 import os
 import requests
 
-OLLAMA_URL = os.environ.get(
+TT_INFERENCE_URL = os.environ.get(
     "ZORK_LLM_URL",
-    "http://localhost:11434/v1/chat/completions",
+    "http://localhost:8000/v1/chat/completions",
 )
-TIMEOUT = 15  # seconds — generous for local inference
+TIMEOUT = 30  # seconds — tt-inference-server first-token latency can be higher
 
 
-def call_ollama(
+def call_llm(
     system: str,
     user: str,
-    model: str = "qwen2.5:1.5b",
+    model: str = "meta-llama/Llama-3.1-8B-Instruct",
     temperature: float = 0.7,
 ) -> str | None:
-    """Call Ollama and return the assistant's reply text, or None on any error."""
+    """Call tt-inference-server and return the assistant's reply, or None on any error."""
     try:
         resp = requests.post(
-            OLLAMA_URL,
+            TT_INFERENCE_URL,
             json={
                 "model": model,
                 "messages": [

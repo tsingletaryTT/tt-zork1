@@ -11,10 +11,12 @@ import os
 _OVERRIDE = os.environ.get("ZORK_LLM_MODEL")
 
 _MODELS = {
-    "map":      "qwen2.5:1.5b",   # input mapping: cheap, fast
-    "remix":    "qwen2.5:7b",     # output remix: richer reasoning
-    "art":      "qwen2.5:7b",     # ASCII art: needs spatial reasoning
-    "postcard": "qwen2.5:7b",     # narrative postcards: creative
+    # Small model: input mapping — needs speed, not creativity
+    "map":      "meta-llama/Llama-3.2-1B-Instruct",
+    # Large model: output remix, ASCII art, postcards — needs creativity
+    "remix":    "meta-llama/Llama-3.1-8B-Instruct",
+    "art":      "meta-llama/Llama-3.1-8B-Instruct",
+    "postcard": "meta-llama/Llama-3.1-8B-Instruct",
 }
 
 
@@ -22,4 +24,4 @@ def route(task: str) -> str:
     """Return the model name to use for the given task."""
     if _OVERRIDE:
         return _OVERRIDE
-    return _MODELS.get(task, "qwen2.5:1.5b")
+    return _MODELS.get(task, "meta-llama/Llama-3.1-8B-Instruct")
