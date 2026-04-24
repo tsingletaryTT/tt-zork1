@@ -20,10 +20,10 @@ STAGE_LABELS = {
 }
 
 BANNER = """\
-╔══════════════════════════════════════════════════════════════╗
-║          Z O R K   I   on   T E N S T O R R E N T           ║
-║  1977 interactive fiction · 2026 AI accelerator hardware    ║
-╚══════════════════════════════════════════════════════════════╝"""
+╔══════════════════════════════════════════════════════════════
+║          Z O R K   I   on   T E N S T O R R E N T
+║  1977 interactive fiction · 2026 AI accelerator hardware
+╚══════════════════════════════════════════════════════════════"""
 
 HELP_TEXT = """\
 Commands: /classic  /remix  /help  /quit

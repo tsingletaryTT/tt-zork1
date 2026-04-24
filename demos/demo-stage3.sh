@@ -7,9 +7,9 @@ cd "$(dirname "$0")/.."
 source ~/code/tt-lang/build/env/activate
 
 echo ""
-echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  STAGE 3 — Z-machine runs on QB2 RISC-V cores  (TT-Lang)  ║"
-echo "╚══════════════════════════════════════════════════════════════╝"
+echo "╔══════════════════════════════════════════════════════════════"
+echo "║  STAGE 3 — Z-machine runs on QB2 RISC-V cores  (TT-Lang)"
+echo "╚══════════════════════════════════════════════════════════════"
 echo ""
 sleep 2
 

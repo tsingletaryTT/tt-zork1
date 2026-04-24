@@ -6,9 +6,9 @@ cd "$(dirname "$0")/.."
 source ~/code/tt-lang/build/env/activate
 
 echo ""
-echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  STAGE 2 — Game data lives in QB2 DRAM  (Tenstorrent chip) ║"
-echo "╚══════════════════════════════════════════════════════════════╝"
+echo "╔══════════════════════════════════════════════════════════════"
+echo "║  STAGE 2 — Game data lives in QB2 DRAM  (Tenstorrent chip)"
+echo "╚══════════════════════════════════════════════════════════════"
 echo ""
 sleep 2
 

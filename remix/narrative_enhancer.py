@@ -7,7 +7,7 @@ death, victory) to keep the collection concise.
 """
 from __future__ import annotations
 from pathlib import Path
-from remix.llm import call_ollama
+from remix.llm import call_llm
 from remix.router import route
 
 _SYSTEM_PROMPT = (
@@ -21,16 +21,18 @@ _WIDTH = 44
 
 
 def _render_postcards(cards: list[dict]) -> str:
-    """Render all postcards as a framed display block."""
+    """Render all postcards as a left-bordered display block.
+
+    No right border — prevents broken characters on narrow terminals.
+    """
     if not cards:
         return ""
     bar = "═" * (_WIDTH + 2)
-    lines = [f"╔{bar}╗", f"║{'  POSTCARDS FROM YOUR JOURNEY':<{_WIDTH + 2}}║",
-             f"╠{bar}╣"]
+    lines = [f"╔{bar}", f"║  POSTCARDS FROM YOUR JOURNEY", f"╠{bar}"]
     for card in cards:
         loc = card["location"]
         text = card["text"]
-        lines.append(f"║ {loc:<{_WIDTH}} ║")
+        lines.append(f"║ {loc}")
         # Word-wrap text to _WIDTH chars; hard-wrap oversized words
         words = text.split()
         line_buf = ""
@@ -38,18 +40,18 @@ def _render_postcards(cards: list[dict]) -> str:
             candidate = f"{line_buf} {word}".strip() if line_buf else word
             if len(candidate) > _WIDTH:
                 if line_buf:
-                    lines.append(f"║ {line_buf:<{_WIDTH}} ║")
+                    lines.append(f"║ {line_buf}")
                 # Hard-wrap oversized words
                 while len(word) > _WIDTH:
-                    lines.append(f"║ {word[:_WIDTH]:<{_WIDTH}} ║")
+                    lines.append(f"║ {word[:_WIDTH]}")
                     word = word[_WIDTH:]
                 line_buf = word
             else:
                 line_buf = candidate
         if line_buf:
-            lines.append(f"║ {line_buf:<{_WIDTH}} ║")
-        lines.append(f"║ {'':<{_WIDTH}} ║")
-    lines.append(f"╚{bar}╝")
+            lines.append(f"║ {line_buf}")
+        lines.append("║")
+    lines.append(f"╚{bar}")
     return "\n".join(lines)
 
 
@@ -68,7 +70,7 @@ class NarrativeEnhancer:
             f"LOCATION: {location}\nMOMENT: {moment_type}\nCONTEXT: {context}"
         )
         try:
-            text = call_ollama(
+            text = call_llm(
                 system=_SYSTEM_PROMPT,
                 user=prompt,
                 model=route("postcard"),

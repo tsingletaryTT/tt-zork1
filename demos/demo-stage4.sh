@@ -11,9 +11,9 @@ export ZORK_LLM_URL="${ZORK_LLM_URL:-http://localhost:8001/v1/chat/completions}"
 export ZORK_LLM_MODEL="${ZORK_LLM_MODEL:-meta-llama/Llama-3.1-8B-Instruct}"
 
 echo ""
-echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  STAGE 4 — LLM Remix: Never Be Told NO Again               ║"
-echo "╚══════════════════════════════════════════════════════════════╝"
+echo "╔══════════════════════════════════════════════════════════════"
+echo "║  STAGE 4 — LLM Remix: Never Be Told NO Again"
+echo "╚══════════════════════════════════════════════════════════════"
 echo ""
 sleep 2
 echo "  Starting in CLASSIC mode — then switching to REMIX live."

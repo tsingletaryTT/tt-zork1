@@ -7,7 +7,7 @@ game remains playable without ASCII art.
 """
 from __future__ import annotations
 from pathlib import Path
-from remix.llm import call_ollama
+from remix.llm import call_llm
 from remix.router import route
 
 _SYSTEM_PROMPT = (
@@ -16,17 +16,20 @@ _SYSTEM_PROMPT = (
 
 
 def _frame(art: str, room_name: str) -> str:
-    """Wrap ASCII art in a box border with room name."""
+    """Wrap ASCII art in a left-bordered box with room name.
+
+    No right border — prevents broken characters on narrow terminals.
+    """
     lines = art.strip().splitlines()
     # Truncate to 6 lines max
     lines = lines[:6]
     width = max((len(line) for line in lines), default=0)
     width = max(width, len(room_name) + 2, 20)
     bar = "═" * (width + 2)
-    framed = [f"╔{bar}╗", f"║ {room_name:<{width}} ║"]
+    framed = [f"╔{bar}", f"║ {room_name}"]
     for line in lines:
-        framed.append(f"║ {line:<{width}} ║")
-    framed.append(f"╚{bar}╝")
+        framed.append(f"║ {line}")
+    framed.append(f"╚{bar}")
     return "\n".join(framed)
 
 
@@ -46,7 +49,7 @@ class AsciiArtist:
             return self._cache[key]
 
         prompt = f"Room: {room_name}\nDescription: {description[:200]}"
-        raw = call_ollama(
+        raw = call_llm(
             system=_SYSTEM_PROMPT,
             user=prompt,
             model=route("art"),

@@ -6,9 +6,9 @@ cd "$(dirname "$0")/.."
 source ~/code/tt-lang/build/env/activate
 
 echo ""
-echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  STAGE 1 — Pure Python Z-machine  (no hardware required)   ║"
-echo "╚══════════════════════════════════════════════════════════════╝"
+echo "╔══════════════════════════════════════════════════════════════"
+echo "║  STAGE 1 — Pure Python Z-machine  (no hardware required)"
+echo "╚══════════════════════════════════════════════════════════════"
 echo ""
 sleep 2
 
