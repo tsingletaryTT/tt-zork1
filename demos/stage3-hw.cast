@@ -1,0 +1,3 @@
+{"version": 2, "width": 236, "height": 54, "timestamp": 1776989434, "env": {"SHELL": "/bin/bash", "TERM": "xterm-256color"}, "title": "Zork on Tenstorrent — Stage 3 hardware"}
+[0.001864, "o", "🦀 TT-Toplike-RS v0.4.1\r\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\r\nBackend: JSON (tt-smi)\r\nUpdate Interval: 100ms\r\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\r\n\r\n"]
+[0.00216, "o", "✗ Backend initialization failed: Subprocess error: Failed to run tt-smi: No such file or directory (os error 2)\r\n"]
