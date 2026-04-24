@@ -313,11 +313,12 @@ class ZMachineV3:
     def decode_zstring(self, addr: int) -> str:
         """Decode the Z-string starting at byte address addr.
 
-        This is the public entry point. Handles up to 60 16-bit words
-        (sufficient for any Zork I string) and starts at recursion depth 0.
-        Returns plain text with abbreviations expanded.
+        This is the public entry point. Uses a generous 300-word limit
+        (600 bytes of encoded Z-string = ~900 Z-chars before abbreviation
+        expansion) so that long strings like the Zork I leaflet decode fully.
+        Starts at recursion depth 0. Returns plain text with abbreviations expanded.
         """
-        return self._decode_zstring_raw(addr, 60, 0)
+        return self._decode_zstring_raw(addr, 300, 0)
 
     def get_object_name(self, obj_num: int) -> str:
         """Return the text name of Z-machine object obj_num (1-indexed).
