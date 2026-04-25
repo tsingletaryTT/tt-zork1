@@ -64,3 +64,4 @@ local.mk
 !models/.gitkeep
 !models/README.md
 model_cache/
+.superpowers/
