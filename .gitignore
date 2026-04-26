@@ -3,7 +3,12 @@ build/
 build-native/
 build-riscv/
 build-host/
+build-blackhole-kernel/
 generated/
+python_bindings/build/
+python_bindings/*.so
+test_results/
+config/
 *.o
 *.a
 *.so
