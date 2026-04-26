@@ -120,6 +120,8 @@ def main() -> None:
                         help="Override LLM model (default: qwen2.5:1.5b)")
     parser.add_argument("--persona", default=None,
                         help="Auto-play persona (expert/naive/completionist/experimental)")
+    parser.add_argument("--tui", action="store_true",
+                        help="Launch Textual TUI (side panel with art, LLM stream, hardware)")
     args = parser.parse_args()
 
     if not Path(args.game).exists():
@@ -137,7 +139,19 @@ def main() -> None:
 
     engine = build_engine(args.stage, args.game)
     try:
-        game_loop(engine, remix_layer)
+        if args.tui:
+            try:
+                from tui.app import ZMachineTuiApp
+            except ImportError:
+                print("Error: 'textual' not installed. Run: pip install textual", file=sys.stderr)
+                sys.exit(1)
+            ZMachineTuiApp(
+                engine=engine,
+                remix_layer=remix_layer,
+                game_path=args.game,
+            ).run()
+        else:
+            game_loop(engine, remix_layer)
     finally:
         engine.close()
 
