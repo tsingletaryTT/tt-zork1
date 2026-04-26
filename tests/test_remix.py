@@ -32,19 +32,42 @@ def test_call_llm_returns_none_on_non_200():
 
 
 def test_router_map_uses_cheap_model():
-    from remix.router import route
-    model = route("map")
+    import importlib, remix.router as router_mod
+    importlib.reload(router_mod)
+    # No server running → autodetect returns "" → falls back to task table.
+    with patch("remix.router._detect_running_model", return_value=""):
+        model = router_mod.route("map")
     assert "1B" in model or "1b" in model
 
 
 def test_router_remix_uses_rich_model():
-    from remix.router import route
-    assert route("remix") == "meta-llama/Llama-3.1-8B-Instruct"
+    import importlib, remix.router as router_mod
+    importlib.reload(router_mod)
+    with patch("remix.router._detect_running_model", return_value=""):
+        assert router_mod.route("remix") == "meta-llama/Llama-3.1-8B-Instruct"
+
+
+def test_router_autodetect_single_model(monkeypatch):
+    """When exactly one model is running, all tasks use it."""
+    import importlib, remix.router as router_mod
+    importlib.reload(router_mod)
+    with patch("remix.router._detect_running_model", return_value="my-org/Llama-3.3-70B-Instruct"):
+        assert router_mod.route("map") == "my-org/Llama-3.3-70B-Instruct"
+        assert router_mod.route("remix") == "my-org/Llama-3.3-70B-Instruct"
+        assert router_mod.route("art") == "my-org/Llama-3.3-70B-Instruct"
+
+
+def test_router_autodetect_no_server():
+    """When the server is down, autodetect silently returns '' and routing falls back."""
+    import importlib, remix.router as router_mod
+    importlib.reload(router_mod)
+    mock_get = MagicMock(side_effect=Exception("connection refused"))
+    with patch("remix.router._detect_running_model", return_value=""):
+        assert "Instruct" in router_mod.route("remix")
 
 
 def test_router_override_via_env(monkeypatch):
     monkeypatch.setenv("ZORK_LLM_MODEL", "custom-model:3b")
-    # Need to re-import to pick up env var (module-level _OVERRIDE)
     import importlib
     import remix.router as router_mod
     importlib.reload(router_mod)
@@ -53,6 +76,30 @@ def test_router_override_via_env(monkeypatch):
     # Restore
     monkeypatch.delenv("ZORK_LLM_MODEL")
     importlib.reload(router_mod)
+
+
+def test_detected_model_returns_single_model():
+    """detected_model() returns the model name when exactly one is served."""
+    import importlib, remix.router as router_mod
+    importlib.reload(router_mod)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"data": [{"id": "my-org/Llama-3.3-70B-Instruct"}]}
+    with patch("requests.get", return_value=mock_resp):
+        result = router_mod.detected_model()
+    assert result == "my-org/Llama-3.3-70B-Instruct"
+
+
+def test_detected_model_empty_on_multiple_models():
+    """When multiple models are served, detected_model() returns '' to preserve routing."""
+    import importlib, remix.router as router_mod
+    importlib.reload(router_mod)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"data": [{"id": "model-a"}, {"id": "model-b"}]}
+    with patch("requests.get", return_value=mock_resp):
+        result = router_mod.detected_model()
+    assert result == ""
 
 
 def test_input_mapper_passthrough_on_llm_failure():
@@ -70,10 +117,27 @@ def test_input_mapper_uses_llm_result():
 
 
 def test_input_mapper_strips_whitespace():
+    # Freeform prose goes through the LLM; verify its result is stripped.
     from remix.input_mapper import map_input
     with patch("remix.input_mapper.call_llm", return_value="  north  "):
-        result = map_input("go north")
+        result = map_input("head that way up")
     assert result == "north"
+
+
+def test_input_mapper_literal_bypass():
+    # Exact Zork commands never reach the LLM at all.
+    from remix.input_mapper import map_input, _is_literal_command
+    assert _is_literal_command("go north")
+    assert _is_literal_command("north")
+    assert _is_literal_command("take lamp")
+    assert _is_literal_command("open mailbox")
+    assert _is_literal_command("attack troll with sword")
+    assert _is_literal_command("inventory")
+    assert _is_literal_command("look")
+    # Prose inputs must NOT be bypassed
+    assert not _is_literal_command("open the mailbox with my teeth")
+    assert not _is_literal_command("I want to go north")
+    assert not _is_literal_command("grab that leaflet")
 
 
 def test_output_remixer_passthrough_on_llm_failure():

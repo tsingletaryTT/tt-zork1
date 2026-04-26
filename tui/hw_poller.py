@@ -49,6 +49,7 @@ class HardwareSnapshot:
     temp_c: float           # ASIC temperature in degrees Celsius; -1 if unavailable
     power_w: float          # Board TDP in watts; -1 if unavailable
     stage_label: str        # Filled by ZMachineTuiApp, NOT by poll()
+    model_name: str         # Autodetected LLM model; filled by ZMachineTuiApp
 
 
 # Sentinel used as the base for all zeroed/unavailable snapshots.
@@ -62,6 +63,7 @@ _ZEROED = HardwareSnapshot(
     temp_c=-1.0,
     power_w=-1.0,
     stage_label="",
+    model_name="",
 )
 
 

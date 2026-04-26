@@ -23,11 +23,13 @@ def _frame(art: str, room_name: str) -> str:
     """
     lines = art.strip().splitlines()[:6]
     width = 48
+    art_width = width - 2  # 2-char indent; content fills the rest
     bar = "─" * width
     # Room name inset into the top bar
     label = f" {room_name} "
     top = label + "─" * max(0, width - len(label))
-    result = [top] + [f"  {line}" for line in lines] + [bar]
+    # Pad each art line to art_width so every row is flush with the bars
+    result = [top] + [f"  {line.rstrip():<{art_width}}" for line in lines] + [bar]
     return "\n".join(result)
 
 

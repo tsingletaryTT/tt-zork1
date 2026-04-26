@@ -105,12 +105,17 @@ def _print_menu(game_idx: int, stage: str, remix: bool, tui: bool) -> None:
     print("  \033[90m1-4 pick game · s/d/r set stage · t/x toggle · Enter play · q quit\033[0m")
 
 
-def interactive_menu() -> argparse.Namespace:
-    """Show the startup menu and return selections as a Namespace."""
-    game_idx = 0  # default: Zork I
-    stage    = "sim"
-    remix    = False
-    tui      = False
+def interactive_menu(
+    game_idx: int = 0,
+    stage: str = "sim",
+    remix: bool = False,
+    tui: bool = False,
+) -> argparse.Namespace:
+    """Show the startup menu and return selections as a Namespace.
+
+    Pre-seeds the displayed state from CLI args so that flags like --remix
+    and --tui are already toggled on when the menu opens.
+    """
 
     while True:
         _print_menu(game_idx, stage, remix, tui)
@@ -293,8 +298,21 @@ def main() -> None:
     args = parser.parse_args()
 
     # Show interactive menu when no game/stage given, or when --menu is forced.
+    # Pre-seed the menu with whatever flags were already supplied on the CLI
+    # so that --remix, --tui, --game, --stage arrive as the initial selection.
     if args.menu or (args.game is None and args.stage is None):
-        args = interactive_menu()
+        initial_game_idx = 0
+        if args.game:
+            for i, g in enumerate(GAMES):
+                if g["file"] == args.game:
+                    initial_game_idx = i
+                    break
+        args = interactive_menu(
+            game_idx = initial_game_idx,
+            stage    = args.stage or "sim",
+            remix    = bool(args.remix),
+            tui      = bool(args.tui),
+        )
     else:
         # Fill in defaults for anything not supplied on the CLI.
         if args.game is None:

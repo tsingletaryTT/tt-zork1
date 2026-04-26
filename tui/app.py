@@ -32,6 +32,7 @@ from textual.containers import Horizontal
 from tui.game_pane import GamePane
 from tui.context_pane import ContextPane
 from tui.hw_poller import poll as hw_poll, HardwareSnapshot
+from remix.router import detected_model
 from tui.vocabulary import extract_vocabulary
 
 # Lazy art system prompt — read once at import time, shared across all art LLM calls.
@@ -235,6 +236,7 @@ class ZMachineTuiApp(App[None]):
         # stage_label is filled here (not inside hw_poller) because only the
         # app knows which engine is active.
         snap.stage_label = _STAGE_LABELS.get(self._stage, self._stage)
+        snap.model_name = detected_model()
         self.post_message(HardwareUpdate(snap))
 
     # ------------------------------------------------------------------
@@ -405,8 +407,30 @@ class ZMachineTuiApp(App[None]):
                 from remix.input_mapper import map_input
                 mapped_cmd = map_input(cmd)
 
-                if _looks_like_room_entry(game_response):
-                    room_name = _extract_room_name(game_response)
+                # Detect room entry before remixing so art uses the raw Z-machine
+                # description regardless of what the remix layer produces.
+                is_room_entry = _looks_like_room_entry(game_response)
+                room_name = _extract_room_name(game_response) if is_room_entry else ""
+                art_description = game_response[:200]
+
+                # 1. Stream the remix response first — player sees the text
+                #    immediately without waiting for art generation to finish.
+                self.call_from_thread(self.post_message, StreamStart("remix"))
+                from remix.output_remixer import remix_output_stream
+
+                def _on_tok(t: str) -> None:
+                    self.call_from_thread(self.post_message, TokenReceived(t))
+
+                final_text = remix_output_stream(
+                    mapped_cmd, game_response, on_token=_on_tok
+                )
+                self.call_from_thread(self.post_message, StreamDone("remix"))
+                self.call_from_thread(self.post_message, GameText(final_text))
+                # Use final_text as context for the persona's next command.
+                game_response = final_text
+
+                # 2. Art second — generates or shows cached after text is visible.
+                if is_room_entry and room_name:
                     key = room_name.strip().lower()
 
                     # AsciiArtist._cache is a plain dict; check directly to
@@ -419,7 +443,7 @@ class ZMachineTuiApp(App[None]):
 
                         for tok in call_llm_stream(
                             system=self._art_system,
-                            user=f"Room: {room_name}\nDescription: {game_response[:200]}",
+                            user=f"Room: {room_name}\nDescription: {art_description}",
                             model=route("art"),
                             temperature=0.9,
                         ):
@@ -443,20 +467,6 @@ class ZMachineTuiApp(App[None]):
                         self.call_from_thread(
                             self.post_message, ShowArt(cached, room_name)
                         )
-
-                self.call_from_thread(self.post_message, StreamStart("remix"))
-                from remix.output_remixer import remix_output_stream
-
-                def _on_tok(t: str) -> None:
-                    self.call_from_thread(self.post_message, TokenReceived(t))
-
-                final_text = remix_output_stream(
-                    mapped_cmd, game_response, on_token=_on_tok
-                )
-                self.call_from_thread(self.post_message, StreamDone("remix"))
-                self.call_from_thread(self.post_message, GameText(final_text))
-                # Use final_text as context for the persona's next command.
-                game_response = final_text
 
             self._turn_count += 1
 

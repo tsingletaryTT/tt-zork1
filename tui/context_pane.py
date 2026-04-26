@@ -485,13 +485,10 @@ class ContextPane(Widget):
 
 
 def _render_hardware(snap) -> str:
-    """Format a HardwareSnapshot as a compact one-line Rich string for the footer.
+    """Format a HardwareSnapshot as a two-line Rich string for the pinned footer.
 
-    Returns plain "no hardware" text when all numeric fields are -1 (i.e. the
-    poller is running in simulation mode without a real device).
-
-    The footer is only 2 lines tall, so we keep this intentionally compact —
-    just temp and power as plain numbers, no progress bars or wide graphs.
+    Line 1: temp / power telemetry (or "no hardware" when unavailable).
+    Line 2: stage label · model name (dim teal), omitted when both are empty.
 
     Args:
         snap: HardwareSnapshot with numeric fields; -1 means unavailable.
@@ -499,17 +496,29 @@ def _render_hardware(snap) -> str:
     Returns:
         Rich markup string suitable for passing to Static.update().
     """
-    if all(
+    no_hw = all(
         getattr(snap, f) == -1
         for f in ("tensix_pct", "riscv_pct", "dram_read_gbps", "dram_write_gbps", "temp_c", "power_w")
-    ):
-        return "no hardware"
+    )
 
-    parts: list[str] = []
-
+    # --- Line 1: telemetry ---
+    hw_parts: list[str] = []
     if snap.temp_c != -1:
-        parts.append(f"temp  {snap.temp_c:.0f}°C")
+        hw_parts.append(f"temp  {snap.temp_c:.0f}°C")
     if snap.power_w != -1:
-        parts.append(f"power  {snap.power_w:.0f}W")
+        hw_parts.append(f"power  {snap.power_w:.0f}W")
+    line1 = "    ".join(hw_parts) if hw_parts else "no hardware"
 
-    return "    ".join(parts) if parts else "no hardware"
+    # --- Line 2: stage · model (both optional) ---
+    meta: list[str] = []
+    if getattr(snap, "stage_label", ""):
+        meta.append(snap.stage_label)
+    model = getattr(snap, "model_name", "")
+    if model:
+        # Show just the leaf name after the last "/" for brevity.
+        meta.append(model.rsplit("/", 1)[-1])
+    line2 = "  [#607d8b]·[/]  ".join(
+        f"[#4fd1c5]{part}[/]" for part in meta
+    ) if meta else ""
+
+    return (line1 + "\n" + line2) if line2 else line1
