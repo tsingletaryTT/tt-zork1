@@ -178,28 +178,38 @@ class ContextPane(Widget):
         height: auto;
         padding: 0 1 1 1;
         color: #27ae60;
+        border: none;
+        text-align: left;
     }
     #activity-bar {
         height: 1;
         padding: 0 1;
         color: #607d8b;
+        border: none;
+        text-align: left;
     }
     #ctx-header {
         height: 1;
         padding: 0 1;
         color: #4fd1c5;
         background: #0f2a35;
+        border: none;
+        text-align: left;
     }
     #ctx-body {
         height: 1fr;
         padding: 0 1;
         overflow-y: auto;
+        border: none;
+        text-align: left;
     }
     #hw-footer {
         height: 2;
         padding: 0 1;
         color: #607d8b;
         background: #0f2a35;
+        border: none;
+        text-align: left;
     }
     """
 

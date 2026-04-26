@@ -16,15 +16,18 @@ class GamePane(Widget):
     DEFAULT_CSS = """
     GamePane {
         layout: vertical;
+        border: none;
     }
     #game-log {
         width: 100%;
         height: 1fr;
+        border: none;
     }
     #game-input {
         width: 100%;
         height: 3;
-        border-top: solid $primary-darken-2;
+        border: none;
+        padding: 0 1;
     }
     """
 
