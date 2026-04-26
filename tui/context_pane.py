@@ -115,6 +115,7 @@ def classify_token(
 _STATE_HARDWARE = "hardware"
 _STATE_THINKING = "thinking"
 _STATE_ART = "art"
+_STATE_LOG = "log"
 
 _COLOR_HEADER_THINKING = "#4fd1c5"
 _COLOR_HEADER_ART = "#27ae60"
@@ -183,6 +184,15 @@ class ContextPane(Widget):
         self._prev_token = ""
         self._is_sentence_start = True
 
+        # Completed stream log: list of (task_label, rich_markup_text).
+        # Newest entries are appended; _render_log() shows them newest-first.
+        self._log: list[tuple[str, str]] = []
+
+        # True while we are in post-stream linger (state stays THINKING so
+        # hardware polls don't overwrite the content).  Cleared by the app
+        # timer calling end_linger(), or cancelled when a new stream starts.
+        self._lingering: bool = False
+
     # ------------------------------------------------------------------
     # Textual compose
     # ------------------------------------------------------------------
@@ -199,10 +209,14 @@ class ContextPane(Widget):
     def on_stream_start(self, task: str) -> None:
         """Transition to THINKING state and clear the display body.
 
+        Also cancels any pending linger from the previous stream so the timer
+        (if it fires late) does not interrupt the new stream.
+
         Args:
             task: Arbitrary task label shown in the header (e.g. "describe",
                   "art", "hint").
         """
+        self._lingering = False
         self._state = _STATE_THINKING
         self._token_buffer = []
         self._prev_token = ""
@@ -248,18 +262,61 @@ class ContextPane(Widget):
     def on_stream_done(self, task: str) -> None:
         """Exit THINKING state.
 
-        If task is "art" the pane transitions to ART state (waiting for the
-        matching on_show_art call).  Any other task transitions back to
-        HARDWARE.
+        If task is "art", transitions to ART state (awaiting on_show_art).
+        If tokens were received, saves them to the log and enters a linger
+        period — state stays THINKING so hardware polls don't overwrite the
+        content.  The app calls end_linger() after a delay to return to
+        HARDWARE.  If no tokens were received (e.g. the "persona" task uses
+        call_llm, not call_llm_stream), transitions immediately to HARDWARE.
 
         Args:
             task: The task label that was passed to on_stream_start().
         """
         if task == "art":
             self._state = _STATE_ART
+            return
+
+        if self._token_buffer:
+            # Save completed stream to the log (Rich markup preserved).
+            self._log.append((task, "".join(self._token_buffer)))
+            # Stay in THINKING so hardware polls don't wipe the content.
+            # Header changes to DONE to signal the stream has finished.
+            self._lingering = True
+            self._set_header(f"[{_COLOR_HEADER_THINKING}]DONE  [{task}][/]")
         else:
+            # No tokens (persona uses call_llm, not call_llm_stream).
             self._state = _STATE_HARDWARE
             self._set_header(f"[{_COLOR_HEADER_HW}]HARDWARE[/]")
+
+    def end_linger(self) -> None:
+        """Transition from post-stream linger back to HARDWARE.
+
+        Called by the app's set_timer() callback.  Guards against firing after
+        a new stream has already started (on_stream_start clears _lingering).
+        """
+        if self._state == _STATE_THINKING and self._lingering:
+            self._lingering = False
+            self._state = _STATE_HARDWARE
+            self._set_header(f"[{_COLOR_HEADER_HW}]HARDWARE[/]")
+
+    def toggle_log(self) -> None:
+        """Toggle the LOG view on/off (bound to F2 in the app).
+
+        Entering LOG: switches state to LOG and renders all accumulated
+        stream entries newest-first with task-label separators.
+        Exiting LOG: returns to HARDWARE (safe default regardless of what
+        state was active before the log was opened).
+        """
+        if self._state == _STATE_LOG:
+            self._lingering = False
+            self._state = _STATE_HARDWARE
+            self._set_header(f"[{_COLOR_HEADER_HW}]HARDWARE[/]")
+            self._set_body("")
+        else:
+            self._state = _STATE_LOG
+            count = len(self._log)
+            self._set_header(f"[#ec96b8]LOG  [{count} entries][/]")
+            self._set_body(self._render_log())
 
     def on_show_art(self, text: str, room_name: str) -> None:
         """Display cached ASCII art and enter ART state.
@@ -304,6 +361,22 @@ class ContextPane(Widget):
     def _set_body(self, text: str) -> None:
         """Update the body Static widget with Rich-markup text."""
         self.query_one("#ctx-body", Static).update(text)
+
+    def _render_log(self) -> str:
+        """Format all log entries as Rich markup, newest entry first.
+
+        Each entry is preceded by a dim separator line showing the task label
+        and its position in the log.  The colored token markup from the
+        original THINKING stream is preserved so the log looks identical to
+        what was displayed live.
+        """
+        if not self._log:
+            return "[#607d8b]no entries yet[/]"
+        parts: list[str] = []
+        for i, (task, text) in enumerate(reversed(self._log), 1):
+            idx = len(self._log) - i + 1
+            parts.append(f"[#607d8b]── {idx}: {task} ──[/]\n{text}\n")
+        return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------

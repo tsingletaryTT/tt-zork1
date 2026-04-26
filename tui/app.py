@@ -157,6 +157,7 @@ class ZMachineTuiApp(App[None]):
     BINDINGS = [
         Binding("/", "focus_input", "Focus input", show=False),
         Binding("f1", "toggle_context", "Context", show=True),
+        Binding("f2", "toggle_log", "Log", show=True),
         Binding("q", "action_quit_confirm", "Quit"),
     ]
 
@@ -253,8 +254,18 @@ class ZMachineTuiApp(App[None]):
         self.query_one(ContextPane).on_stream_start(msg.task)
 
     def on_stream_done(self, msg: StreamDone) -> None:
-        """Signal ContextPane that the LLM stream is finished."""
-        self.query_one(ContextPane).on_stream_done(msg.task)
+        """Signal ContextPane that the LLM stream is finished.
+
+        For tasks that stream tokens (remix, art), schedule a timer so the
+        THINKING content lingers for 8 seconds before hardware display
+        resumes.  Art goes to ART state immediately via on_show_art, so the
+        linger timer for art is a no-op in practice (end_linger checks the
+        state).  Persona uses call_llm (no tokens), so linger is also a no-op.
+        """
+        ctx = self.query_one(ContextPane)
+        ctx.on_stream_done(msg.task)
+        if msg.task not in ("persona",):
+            self.set_timer(8.0, ctx.end_linger)
 
     def on_hardware_update(self, msg: HardwareUpdate) -> None:
         """Push fresh telemetry into ContextPane's HARDWARE display."""
@@ -539,6 +550,10 @@ class ZMachineTuiApp(App[None]):
         """Show or hide the right-hand ContextPane (F1 toggle)."""
         ctx = self.query_one(ContextPane)
         ctx.display = not ctx.display
+
+    def action_toggle_log(self) -> None:
+        """Toggle the LLM stream log in the ContextPane (F2 toggle)."""
+        self.query_one(ContextPane).toggle_log()
 
     def action_quit_confirm(self) -> None:
         """Post a sentinel to stop the game thread, then exit the app."""
