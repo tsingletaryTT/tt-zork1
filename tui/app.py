@@ -223,7 +223,7 @@ class ZMachineTuiApp(App[None]):
 
     async def _tick_hardware(self) -> None:
         """Run tt-smi in a thread-pool executor and post a HardwareUpdate."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         # hw_poll() is a blocking subprocess call; run_in_executor prevents it
         # from stalling the Textual event loop.
         snap = await loop.run_in_executor(None, hw_poll)
