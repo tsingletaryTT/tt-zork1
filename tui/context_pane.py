@@ -40,6 +40,7 @@ Token colorizer rules (classify_token) — in priority order:
 Grey before pink so common short words like "going" stay dim even though
 they end in a vivid suffix.
 """
+import re
 from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
@@ -175,11 +176,12 @@ class ContextPane(Widget):
     }
     #art-panel {
         display: none;
-        height: auto;
+        height: 9;
         padding: 0 1 1 1;
         color: #27ae60;
         border: none;
         text-align: left;
+        overflow: hidden;
     }
     #activity-bar {
         height: 1;
@@ -298,41 +300,42 @@ class ContextPane(Widget):
     def on_token(self, text: str) -> None:
         """Append a streamed token chunk to the THINKING display.
 
-        Each space-delimited word in *text* is classified with classify_token()
-        and wrapped in a Rich color tag before being appended to the body.
-        Non-empty words also increment the word counter so the activity bar
-        can report how many words have been streamed so far.
+        LLM streams send arbitrary-length chunks — sometimes a full word,
+        sometimes a sub-word fragment like "c", "reak", "s".  We split on
+        whitespace boundaries but *preserve the original spacing* rather than
+        adding a trailing space after every fragment, which was producing
+        "c reak s " instead of "creaks ".
 
         Args:
-            text: One or more words (possibly with embedded spaces) received
-                  from the LLM stream.
+            text: One streaming chunk from call_llm_stream().
         """
         if self._state != _STATE_THINKING:
             return
 
-        for word in text.split(" "):
-            if not word:
-                # Preserve spacing between tokens.
-                self._token_buffer.append(" ")
+        # re.split with a capturing group keeps the whitespace segments so
+        # "creaks open" → ["creaks", " ", "open"] and we emit each part
+        # without inserting extra spaces.
+        for segment in re.split(r"(\s+)", text):
+            if not segment:
+                continue
+            if segment.isspace():
+                self._token_buffer.append(segment)
                 continue
 
             color = classify_token(
-                word,
+                segment,
                 self._vocabulary,
                 prev_token=self._prev_token,
                 is_sentence_start=self._is_sentence_start,
             )
-            self._token_buffer.append(f"[{color}]{word}[/] ")
-            self._word_count += 1
+            self._token_buffer.append(f"[{color}]{segment}[/]")
+            if re.search(r"\w", segment):
+                self._word_count += 1
 
-            # Advance colorizer context.
-            self._prev_token = word.strip(".,!?;:'\"-()[]").lower()
-            # A token ending in sentence-terminal punctuation starts a new
-            # sentence for the next word.
-            self._is_sentence_start = word.rstrip().endswith((".", "!", "?"))
+            self._prev_token = segment.strip(".,!?;:'\"-()[]").lower()
+            self._is_sentence_start = segment.rstrip().endswith((".", "!", "?"))
 
         self._set_body("".join(self._token_buffer))
-        # Update activity bar with running word count.
         self._set_activity(
             f"↓  {self._activity_task}  ·  {self._word_count} words"
         )

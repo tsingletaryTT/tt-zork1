@@ -68,3 +68,71 @@ def test_vocab_takes_priority_over_vivid():
     # "horrifying" (9 chars, "ing") is also in vocab → teal wins
     vocab = frozenset({"horrifying"})
     assert classify_token("horrifying", vocab) == "#4fd1c5"
+
+
+# ---------------------------------------------------------------------------
+# on_token sub-word spacing regression tests
+# ---------------------------------------------------------------------------
+
+def _make_pane():
+    """Return a ContextPane instance without a running Textual app."""
+    from tui.context_pane import ContextPane, _STATE_THINKING
+    pane = ContextPane.__new__(ContextPane)
+    pane._vocabulary = frozenset({"mailbox"})
+    pane._state = _STATE_THINKING
+    pane._token_buffer = []
+    pane._prev_token = ""
+    pane._is_sentence_start = True
+    pane._word_count = 0
+    pane._activity_task = "remix"
+    return pane
+
+
+def test_subword_tokens_no_spurious_spaces():
+    """Sub-word chunks 'c','reak','s' must join as 'creaks', not 'c reak s'."""
+    pane = _make_pane()
+    # Simulate three separate streaming events for one word
+    for chunk in ("c", "reak", "s"):
+        pane._token_buffer  # access to ensure state is valid
+        import re
+        from tui.context_pane import classify_token
+        for segment in re.split(r"(\s+)", chunk):
+            if not segment:
+                continue
+            if segment.isspace():
+                pane._token_buffer.append(segment)
+                continue
+            color = classify_token(segment, pane._vocabulary,
+                                   prev_token=pane._prev_token,
+                                   is_sentence_start=pane._is_sentence_start)
+            pane._token_buffer.append(f"[{color}]{segment}[/]")
+            if re.search(r"\w", segment):
+                pane._word_count += 1
+            pane._prev_token = segment.strip(".,!?;:'\"-()[]").lower()
+            pane._is_sentence_start = segment.rstrip().endswith((".", "!", "?"))
+
+    joined = "".join(pane._token_buffer)
+    # Strip all Rich markup tags for plain-text comparison
+    plain = re.sub(r"\[/?[^\]]*\]", "", joined)
+    assert plain == "creaks", f"Expected 'creaks', got {plain!r}"
+
+
+def test_whole_word_token_preserves_trailing_space():
+    """A chunk 'creaks ' (with trailing space) stays 'creaks '."""
+    pane = _make_pane()
+    import re
+    from tui.context_pane import classify_token
+    for segment in re.split(r"(\s+)", "creaks "):
+        if not segment:
+            continue
+        if segment.isspace():
+            pane._token_buffer.append(segment)
+            continue
+        color = classify_token(segment, pane._vocabulary,
+                               prev_token=pane._prev_token,
+                               is_sentence_start=pane._is_sentence_start)
+        pane._token_buffer.append(f"[{color}]{segment}[/]")
+        pane._prev_token = segment.strip(".,!?;:'\"-()[]").lower()
+
+    plain = re.sub(r"\[/?[^\]]*\]", "", "".join(pane._token_buffer))
+    assert plain == "creaks ", f"Expected 'creaks ', got {plain!r}"
