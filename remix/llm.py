@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 from typing import Iterator
+
 import requests
 
 TT_INFERENCE_URL = os.environ.get(
