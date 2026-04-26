@@ -9,15 +9,16 @@ State machine:
       → ART           on ShowArt message
           → THINKING  on next StreamStart
 
-Token colorizer rules (classify_token):
+Token colorizer rules (classify_token) — in priority order:
     1. teal  #4fd1c5  — word in Z-machine vocabulary frozenset
-    2. pink  #ec96b8  — length ≥ 8 AND ends in vivid suffix
-    3. amber #f4c471  — capitalised mid-sentence OR follows a/an/the/this/that
-    4. grey  #607d8b  — articles, prepositions, conjunctions (stopwords)
+    2. grey  #607d8b  — articles, prepositions, conjunctions (stopwords)
+    3. pink  #ec96b8  — length ≥ 8 AND ends in vivid suffix
+    4. amber #f4c471  — capitalised mid-sentence OR follows a/an/the/this/that
     5. default #e8f0f2 — everything else
-"""
-from __future__ import annotations
 
+Grey before pink so common short words like "going" stay dim even though
+they end in a vivid suffix.
+"""
 from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
