@@ -16,21 +16,19 @@ _SYSTEM_PROMPT = (
 
 
 def _frame(art: str, room_name: str) -> str:
-    """Wrap ASCII art in a left-bordered box with room name.
+    """Wrap ASCII art with a room-name header and thin horizontal rules.
 
-    No right border — prevents broken characters on narrow terminals.
+    No vertical bars — avoids visual confusion with the TUI panel borders.
+    Fixed 36-char width to fill the 40-col context pane with padding.
     """
-    lines = art.strip().splitlines()
-    # Truncate to 6 lines max
-    lines = lines[:6]
-    width = max((len(line) for line in lines), default=0)
-    width = max(width, len(room_name) + 2, 20)
-    bar = "═" * (width + 2)
-    framed = [f"╔{bar}", f"║ {room_name}"]
-    for line in lines:
-        framed.append(f"║ {line}")
-    framed.append(f"╚{bar}")
-    return "\n".join(framed)
+    lines = art.strip().splitlines()[:6]
+    width = 36
+    bar = "─" * width
+    # Room name inset into the top bar
+    label = f" {room_name} "
+    top = label + "─" * max(0, width - len(label))
+    result = [top] + [f"  {line}" for line in lines] + [bar]
+    return "\n".join(result)
 
 
 class AsciiArtist:

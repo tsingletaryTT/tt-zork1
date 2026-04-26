@@ -296,6 +296,11 @@ class ZMachineTuiApp(App[None]):
                 self.exit()
             return
 
+        # Echo the player's command into the game pane before handing it to
+        # the engine.  This mirrors what a real terminal Z-machine would show
+        # (the player typed text appears in the scrollback before the response).
+        self.query_one(GamePane).write_game_text(f"\n> {cmd}\n")
+
         # Disable the input field while the game thread processes the command;
         # _enable_input() re-enables it once the response arrives.
         event.input.disabled = True

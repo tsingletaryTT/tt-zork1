@@ -1,27 +1,34 @@
 # tui/context_pane.py
-"""ContextPane — right panel split into a persistent art panel (top) and
-an info panel (bottom) that cycles through THINKING / HARDWARE / LOG states.
+"""ContextPane — right panel with persistent ASCII art, activity bar,
+state header, scrollable body, and a pinned hardware footer.
 
 Layout:
     ┌──────────────────────────┐
     │  #art-panel (hidden      │  ← persists across state changes;
     │   until first art)       │    only replaced on next room entry
     ├──────────────────────────┤
-    │  #ctx-header (2 lines)   │  ← THINKING / DONE / HARDWARE / LOG label
-    │  #ctx-body (1fr)         │  ← scrollable info content
+    │  #activity-bar (1 line)  │  ← LLM task + word count (dim)
+    │  #ctx-header  (1 line)   │  ← THINKING / DONE / LOG label (teal)
+    │  #ctx-body    (1fr)      │  ← scrollable info content
+    ├──────────────────────────┤
+    │  #hw-footer   (2 lines)  │  ← always shows temp/power (dim, pinned)
     └──────────────────────────┘
 
 Info panel state machine:
-    HARDWARE (default)
+    IDLE (default)
       → THINKING  on StreamStart
           → (linger 8s, header = DONE)
-          → HARDWARE  after end_linger() timer
+          → IDLE    after end_linger() timer
       → LOG       on toggle_log() / F2
-          → HARDWARE  on toggle_log() again
+          → IDLE   on toggle_log() again
 
 Art panel:
     Hidden until ShowArt message; updated in place (no info panel state
     change).  Cleared (hidden) when StreamStart("art") fires for a new room.
+
+Hardware footer:
+    Always updated on every HardwareUpdate — never gated by state.  Shows
+    compact "temp  N°C    power  NW" text (no progress bars).
 
 Token colorizer rules (classify_token) — in priority order:
     1. teal  #4fd1c5  — word in Z-machine vocabulary frozenset
@@ -126,12 +133,14 @@ def classify_token(
 # Internal state constants
 # ---------------------------------------------------------------------------
 
-_STATE_HARDWARE = "hardware"
+# IDLE replaces what was previously called HARDWARE: when no stream is active
+# and the log is closed, the header and body are empty.  Hardware is always
+# shown in the pinned #hw-footer regardless of this state.
+_STATE_IDLE = "idle"
 _STATE_THINKING = "thinking"
 _STATE_LOG = "log"
 
 _COLOR_HEADER_THINKING = "#4fd1c5"
-_COLOR_HEADER_HW = "#4fd1c5"
 
 
 # ---------------------------------------------------------------------------
@@ -140,28 +149,29 @@ _COLOR_HEADER_HW = "#4fd1c5"
 
 
 class ContextPane(Widget):
-    """Right panel that switches between THINKING, ART, and HARDWARE states.
+    """Right panel that cycles between THINKING, ART, and IDLE states.
 
     THINKING — streams LLM tokens with per-word color highlighting via
-               classify_token().
+               classify_token().  Activity bar shows task name + word count.
     ART      — displays cached ASCII art for the current room (generated
                off-screen by the LLM with task="art").
-    HARDWARE — shows live tt-smi telemetry: Tensix/RISC-V utilisation, DRAM
-               bandwidth, temperature, and power.
+    IDLE     — header and body are empty.  Hardware is always visible in the
+               pinned #hw-footer at the bottom.
 
     Transitions are driven by the app calling the public on_*() methods:
 
         on_stream_start(task)         → enter THINKING
         on_token(text)                → append colored tokens (THINKING only)
-        on_stream_done(task)          → exit THINKING → ART or HARDWARE
-        on_show_art(text, room_name)  → enter ART directly
-        on_hardware_update(snapshot)  → refresh HARDWARE display
+        on_stream_done(task)          → exit THINKING → linger → IDLE
+        on_show_art(text, room_name)  → update #art-panel directly
+        on_hardware_update(snapshot)  → always refresh #hw-footer
     """
 
     DEFAULT_CSS = """
     ContextPane {
         width: 40;
         layout: vertical;
+        border: none;
     }
     #art-panel {
         display: none;
@@ -169,8 +179,13 @@ class ContextPane(Widget):
         padding: 0 1 1 1;
         color: #27ae60;
     }
+    #activity-bar {
+        height: 1;
+        padding: 0 1;
+        color: #607d8b;
+    }
     #ctx-header {
-        height: 2;
+        height: 1;
         padding: 0 1;
         color: #4fd1c5;
         background: #0f2a35;
@@ -179,6 +194,12 @@ class ContextPane(Widget):
         height: 1fr;
         padding: 0 1;
         overflow-y: auto;
+    }
+    #hw-footer {
+        height: 2;
+        padding: 0 1;
+        color: #607d8b;
+        background: #0f2a35;
     }
     """
 
@@ -193,7 +214,7 @@ class ContextPane(Widget):
         """
         super().__init__(**kwargs)
         self._vocabulary = vocabulary
-        self._state = _STATE_HARDWARE
+        self._state = _STATE_IDLE
 
         # Accumulated Rich markup fragments for the THINKING body.
         self._token_buffer: list[str] = []
@@ -211,21 +232,28 @@ class ContextPane(Widget):
         # timer calling end_linger(), or cancelled when a new stream starts.
         self._lingering: bool = False
 
+        # Word counter and task label for the activity bar.
+        self._word_count: int = 0
+        self._activity_task: str = ""
+
     # ------------------------------------------------------------------
     # Textual compose
     # ------------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
-        """Yield child widgets: persistent art panel, info header, info body.
+        """Yield child widgets in display order.
 
-        The art panel (top) holds the current room's ASCII art and persists
-        across THINKING / LOG / HARDWARE cycles.  It is hidden (display: none)
-        until the first ShowArt message arrives.  The header and body below it
-        cycle through the THINKING / DONE / HARDWARE / LOG states as before.
+        #art-panel   — persistent ASCII art (top); hidden until first ShowArt.
+        #activity-bar— dim single-line LLM activity indicator.
+        #ctx-header  — teal state label (THINKING / DONE / LOG).
+        #ctx-body    — scrollable token / log content.
+        #hw-footer   — pinned hardware telemetry (always visible at bottom).
         """
         yield Static("", id="art-panel", markup=True)
+        yield Static("", id="activity-bar", markup=True)
         yield Static("", id="ctx-header")
         yield Static("", id="ctx-body", markup=True)
+        yield Static("", id="hw-footer", markup=True)
 
     # ------------------------------------------------------------------
     # Public methods called by the app's event handlers
@@ -235,21 +263,25 @@ class ContextPane(Widget):
         """Transition to THINKING state and clear the info body.
 
         Also cancels any pending linger from the previous stream so the timer
-        (if it fires late) does not interrupt the new stream.  When the task
-        is "art", the art panel is hidden so it is clear that new art is being
-        generated; it will reappear when ShowArt arrives.
+        (if it fires late) does not interrupt the new stream.  Resets the word
+        counter and activity bar for the new task.  When the task is "art",
+        the art panel is hidden so it is clear that new art is being generated;
+        it will reappear when ShowArt arrives.
 
         Args:
-            task: Arbitrary task label shown in the header (e.g. "remix",
-                  "art", "persona").
+            task: Arbitrary task label shown in the header and activity bar
+                  (e.g. "remix", "art", "persona").
         """
         self._lingering = False
         self._state = _STATE_THINKING
         self._token_buffer = []
         self._prev_token = ""
         self._is_sentence_start = True
+        self._word_count = 0
+        self._activity_task = task
         self._set_header(f"[{_COLOR_HEADER_THINKING}]THINKING  [{task}][/]")
         self._set_body("")
+        self._set_activity(f"↓  {task}")
         if task == "art":
             self.query_one("#art-panel", Static).display = False
 
@@ -258,6 +290,8 @@ class ContextPane(Widget):
 
         Each space-delimited word in *text* is classified with classify_token()
         and wrapped in a Rich color tag before being appended to the body.
+        Non-empty words also increment the word counter so the activity bar
+        can report how many words have been streamed so far.
 
         Args:
             text: One or more words (possibly with embedded spaces) received
@@ -279,6 +313,7 @@ class ContextPane(Widget):
                 is_sentence_start=self._is_sentence_start,
             )
             self._token_buffer.append(f"[{color}]{word}[/] ")
+            self._word_count += 1
 
             # Advance colorizer context.
             self._prev_token = word.strip(".,!?;:'\"-()[]").lower()
@@ -287,6 +322,10 @@ class ContextPane(Widget):
             self._is_sentence_start = word.rstrip().endswith((".", "!", "?"))
 
         self._set_body("".join(self._token_buffer))
+        # Update activity bar with running word count.
+        self._set_activity(
+            f"↓  {self._activity_task}  ·  {self._word_count} words"
+        )
 
     def on_stream_done(self, task: str) -> None:
         """Exit THINKING state.
@@ -295,8 +334,10 @@ class ContextPane(Widget):
         to the log and enters a linger period (state stays THINKING so hardware
         polls don't overwrite the content); the app's set_timer() calls
         end_linger() after a delay.  If no tokens were received (e.g. "persona"
-        uses call_llm, not call_llm_stream), transitions immediately to
-        HARDWARE.
+        uses call_llm, not call_llm_stream), transitions immediately to IDLE.
+
+        The activity bar is updated to show a checkmark + final word count when
+        tokens were received; cleared immediately for zero-token tasks.
 
         Art is no longer a special case here — the art panel (top) is updated
         separately by on_show_art() and is independent of the info panel state.
@@ -311,35 +352,44 @@ class ContextPane(Widget):
             # Header changes to DONE to signal the stream has finished.
             self._lingering = True
             self._set_header(f"[{_COLOR_HEADER_THINKING}]DONE  [{task}][/]")
+            # Activity bar: checkmark + final word count.
+            self._set_activity(
+                f"✓  {task}  ·  {self._word_count} words"
+            )
         else:
             # No tokens (persona uses call_llm, not call_llm_stream).
-            self._state = _STATE_HARDWARE
-            self._set_header(f"[{_COLOR_HEADER_HW}]HARDWARE[/]")
+            self._state = _STATE_IDLE
+            self._set_header("")
+            self._set_activity("")
 
     def end_linger(self) -> None:
-        """Transition from post-stream linger back to HARDWARE.
+        """Transition from post-stream linger back to IDLE.
 
         Called by the app's set_timer() callback.  Guards against firing after
         a new stream has already started (on_stream_start clears _lingering).
+        Also clears the activity bar when returning to idle state.
         """
         if self._state == _STATE_THINKING and self._lingering:
             self._lingering = False
-            self._state = _STATE_HARDWARE
-            self._set_header(f"[{_COLOR_HEADER_HW}]HARDWARE[/]")
+            self._state = _STATE_IDLE
+            self._set_header("")
+            self._set_activity("")
 
     def toggle_log(self) -> None:
         """Toggle the LOG view on/off (bound to F2 in the app).
 
         Entering LOG: switches state to LOG and renders all accumulated
         stream entries newest-first with task-label separators.
-        Exiting LOG: returns to HARDWARE (safe default regardless of what
-        state was active before the log was opened).
+        Exiting LOG: returns to IDLE (safe default regardless of what state
+        was active before the log was opened).  Also clears the activity bar
+        and header when exiting back to idle.
         """
         if self._state == _STATE_LOG:
             self._lingering = False
-            self._state = _STATE_HARDWARE
-            self._set_header(f"[{_COLOR_HEADER_HW}]HARDWARE[/]")
+            self._state = _STATE_IDLE
+            self._set_header("")
             self._set_body("")
+            self._set_activity("")
         else:
             self._state = _STATE_LOG
             count = len(self._log)
@@ -349,9 +399,9 @@ class ContextPane(Widget):
     def on_show_art(self, text: str, room_name: str) -> None:
         """Display ASCII art in the persistent art panel (top of ContextPane).
 
-        This no longer changes the info panel state — THINKING / HARDWARE /
-        LOG continue uninterrupted below.  The art panel persists until the
-        next room entry triggers a new on_stream_start("art") call.
+        This does not change the info panel state — THINKING / IDLE / LOG
+        continue uninterrupted below.  The art panel persists until the next
+        room entry triggers a new on_stream_start("art") call.
 
         Args:
             text:      Multi-line framed ASCII art string.  Square brackets are
@@ -366,10 +416,13 @@ class ContextPane(Widget):
         panel.display = True
 
     def on_hardware_update(self, snapshot) -> None:
-        """Refresh the HARDWARE display from a HardwareSnapshot.
+        """Refresh the pinned #hw-footer from a HardwareSnapshot.
 
-        This is a no-op when the info panel is in THINKING or LOG state so
-        that hardware polling never interrupts the player's reading experience.
+        Unlike the old implementation, this method is NEVER gated by state.
+        Hardware telemetry is always displayed in the footer regardless of
+        whether the info panel is in THINKING, LOG, or IDLE state.  This
+        ensures the footer remains useful throughout the entire session.
+
         The art panel is unaffected by hardware updates.
 
         Args:
@@ -378,10 +431,7 @@ class ContextPane(Widget):
                       dram_write_gbps, temp_c, power_w.  Fields set to -1
                       indicate the value is unavailable.
         """
-        if self._state != _STATE_HARDWARE:
-            return
-        self._set_header(f"[{_COLOR_HEADER_HW}]HARDWARE[/]")
-        self._set_body(_render_hardware(snapshot))
+        self.query_one("#hw-footer", Static).update(_render_hardware(snapshot))
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -394,6 +444,10 @@ class ContextPane(Widget):
     def _set_body(self, text: str) -> None:
         """Update the body Static widget with Rich-markup text."""
         self.query_one("#ctx-body", Static).update(text)
+
+    def _set_activity(self, text: str) -> None:
+        """Update the activity bar Static widget with plain text."""
+        self.query_one("#activity-bar", Static).update(text)
 
     def _render_log(self) -> str:
         """Format all log entries as Rich markup, newest entry first.
@@ -418,10 +472,13 @@ class ContextPane(Widget):
 
 
 def _render_hardware(snap) -> str:
-    """Format a HardwareSnapshot as a Rich-marked-up multi-line string.
+    """Format a HardwareSnapshot as a compact one-line Rich string for the footer.
 
-    Returns a "pure Python — no hardware" notice when all fields are -1
-    (i.e. the poller is running in simulation mode without a real device).
+    Returns plain "no hardware" text when all numeric fields are -1 (i.e. the
+    poller is running in simulation mode without a real device).
+
+    The footer is only 2 lines tall, so we keep this intentionally compact —
+    just temp and power as plain numbers, no progress bars or wide graphs.
 
     Args:
         snap: HardwareSnapshot with numeric fields; -1 means unavailable.
@@ -433,42 +490,13 @@ def _render_hardware(snap) -> str:
         getattr(snap, f) == -1
         for f in ("tensix_pct", "riscv_pct", "dram_read_gbps", "dram_write_gbps", "temp_c", "power_w")
     ):
-        return "[#607d8b]pure Python — no hardware[/]"
+        return "no hardware"
 
     parts: list[str] = []
 
-    if snap.tensix_pct != -1:
-        bar = _progress_bar(snap.tensix_pct, "#27ae60")
-        parts.append(f"[#4fd1c5]TENSIX[/]\n{bar}  {snap.tensix_pct:.0f}%\n")
-    if snap.riscv_pct != -1:
-        bar = _progress_bar(snap.riscv_pct, "#f4c471")
-        parts.append(f"[#f4c471]RISC-V[/]\n{bar}  {snap.riscv_pct:.0f}%\n")
-    if snap.dram_read_gbps != -1:
-        parts.append(
-            f"[#607d8b]DRAM[/]  "
-            f"[#4fd1c5]▸ {snap.dram_read_gbps:.1f} GB/s r[/]  "
-            f"[#81e6d9]▸ {snap.dram_write_gbps:.1f} GB/s w[/]\n"
-        )
     if snap.temp_c != -1:
-        parts.append(f"[#607d8b]temp[/]  [#e8f0f2]{snap.temp_c:.0f}°C[/]")
+        parts.append(f"temp  {snap.temp_c:.0f}°C")
     if snap.power_w != -1:
-        parts.append(f"  [#607d8b]power[/]  [#e8f0f2]{snap.power_w:.0f}W[/]")
+        parts.append(f"power  {snap.power_w:.0f}W")
 
-    return "".join(parts)
-
-
-def _progress_bar(pct: float, color: str, width: int = 10) -> str:
-    """Render a Unicode block progress bar as Rich markup.
-
-    Args:
-        pct:   Percentage value 0–100.
-        color: Hex color for the filled portion.
-        width: Total bar width in characters (default 10).
-
-    Returns:
-        Rich markup string, e.g. "[#27ae60]████[/][#2d3142]░░░░░░[/]".
-    """
-    filled = int(pct / 100 * width)
-    bar_on = "█" * filled
-    bar_off = "░" * (width - filled)
-    return f"[{color}]{bar_on}[/][#2d3142]{bar_off}[/]"
+    return "    ".join(parts) if parts else "no hardware"
