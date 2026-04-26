@@ -7,7 +7,8 @@ the LLM is unavailable.
 """
 from __future__ import annotations
 from pathlib import Path
-from remix.llm import call_llm
+from typing import Callable
+from remix.llm import call_llm, call_llm_stream
 from remix.router import route
 
 _SYSTEM_PROMPT = (
@@ -34,3 +35,42 @@ def remix_output(user_input: str, zork_response: str) -> str:
     if result and result.strip():
         return result.strip()
     return zork_response
+
+
+def remix_output_stream(
+    user_input: str,
+    game_response: str,
+    on_token: Callable[[str], None],
+) -> str:
+    """Stream remix tokens to on_token callback; return full remixed text.
+
+    Falls back to blocking call_llm() if the stream yields nothing. Always
+    returns the complete final string so the caller has the result regardless
+    of which path was taken.
+    """
+    user_msg = (
+        f"PLAYER: {user_input}\n"
+        f"GAME:\n{game_response}"
+    )
+    tokens: list[str] = []
+    for chunk in call_llm_stream(
+        system=_SYSTEM_PROMPT,
+        user=user_msg,
+        model=route("remix"),
+        temperature=0.8,
+    ):
+        on_token(chunk)
+        tokens.append(chunk)
+
+    if tokens:
+        result = "".join(tokens).strip()
+        return result if result else game_response
+
+    # Stream yielded nothing — fall back to blocking call
+    result = call_llm(
+        system=_SYSTEM_PROMPT,
+        user=user_msg,
+        model=route("remix"),
+        temperature=0.8,
+    )
+    return result.strip() if result and result.strip() else game_response
