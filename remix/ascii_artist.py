@@ -19,10 +19,10 @@ def _frame(art: str, room_name: str) -> str:
     """Wrap ASCII art with a room-name header and thin horizontal rules.
 
     No vertical bars — avoids visual confusion with the TUI panel borders.
-    Fixed 36-char width to fill the 40-col context pane with padding.
+    Fixed 48-char width to fill the 52-col context pane with padding.
     """
     lines = art.strip().splitlines()[:6]
-    width = 36
+    width = 48
     bar = "─" * width
     # Room name inset into the top bar
     label = f" {room_name} "

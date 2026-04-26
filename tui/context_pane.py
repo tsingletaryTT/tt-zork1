@@ -169,7 +169,7 @@ class ContextPane(Widget):
 
     DEFAULT_CSS = """
     ContextPane {
-        width: 40;
+        width: 52;
         layout: vertical;
         border: none;
     }

@@ -2,7 +2,7 @@
 """ZMachineTuiApp — Textual application wrapping the Z-machine game loop.
 
 Layout (horizontal):
-    GamePane (1fr)  │  ContextPane (40 cols fixed)
+    GamePane (1fr)  │  ContextPane (52 cols fixed)
 
 Below: Static status bar + Footer.
 
@@ -144,7 +144,7 @@ class ZMachineTuiApp(App[None]):
         width: 1fr;
     }
     ContextPane {
-        width: 40;
+        width: 52;
     }
     #status-bar {
         height: 1;
