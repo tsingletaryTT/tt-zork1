@@ -1,13 +1,27 @@
 # tui/context_pane.py
-"""ContextPane — right panel with three states: THINKING, ART, HARDWARE.
+"""ContextPane — right panel split into a persistent art panel (top) and
+an info panel (bottom) that cycles through THINKING / HARDWARE / LOG states.
 
-State machine:
+Layout:
+    ┌──────────────────────────┐
+    │  #art-panel (hidden      │  ← persists across state changes;
+    │   until first art)       │    only replaced on next room entry
+    ├──────────────────────────┤
+    │  #ctx-header (2 lines)   │  ← THINKING / DONE / HARDWARE / LOG label
+    │  #ctx-body (1fr)         │  ← scrollable info content
+    └──────────────────────────┘
+
+Info panel state machine:
     HARDWARE (default)
-      → THINKING  on StreamStart message
-          → ART       on StreamDone(task="art")
-          → HARDWARE  on StreamDone(task=other)
-      → ART           on ShowArt message
-          → THINKING  on next StreamStart
+      → THINKING  on StreamStart
+          → (linger 8s, header = DONE)
+          → HARDWARE  after end_linger() timer
+      → LOG       on toggle_log() / F2
+          → HARDWARE  on toggle_log() again
+
+Art panel:
+    Hidden until ShowArt message; updated in place (no info panel state
+    change).  Cleared (hidden) when StreamStart("art") fires for a new room.
 
 Token colorizer rules (classify_token) — in priority order:
     1. teal  #4fd1c5  — word in Z-machine vocabulary frozenset
@@ -114,11 +128,9 @@ def classify_token(
 
 _STATE_HARDWARE = "hardware"
 _STATE_THINKING = "thinking"
-_STATE_ART = "art"
 _STATE_LOG = "log"
 
 _COLOR_HEADER_THINKING = "#4fd1c5"
-_COLOR_HEADER_ART = "#27ae60"
 _COLOR_HEADER_HW = "#4fd1c5"
 
 
@@ -150,6 +162,12 @@ class ContextPane(Widget):
     ContextPane {
         width: 40;
         layout: vertical;
+    }
+    #art-panel {
+        display: none;
+        height: auto;
+        padding: 0 1 1 1;
+        color: #27ae60;
     }
     #ctx-header {
         height: 2;
@@ -198,7 +216,14 @@ class ContextPane(Widget):
     # ------------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
-        """Yield child widgets: a header strip and a scrollable body."""
+        """Yield child widgets: persistent art panel, info header, info body.
+
+        The art panel (top) holds the current room's ASCII art and persists
+        across THINKING / LOG / HARDWARE cycles.  It is hidden (display: none)
+        until the first ShowArt message arrives.  The header and body below it
+        cycle through the THINKING / DONE / HARDWARE / LOG states as before.
+        """
+        yield Static("", id="art-panel", markup=True)
         yield Static("", id="ctx-header")
         yield Static("", id="ctx-body", markup=True)
 
@@ -207,14 +232,16 @@ class ContextPane(Widget):
     # ------------------------------------------------------------------
 
     def on_stream_start(self, task: str) -> None:
-        """Transition to THINKING state and clear the display body.
+        """Transition to THINKING state and clear the info body.
 
         Also cancels any pending linger from the previous stream so the timer
-        (if it fires late) does not interrupt the new stream.
+        (if it fires late) does not interrupt the new stream.  When the task
+        is "art", the art panel is hidden so it is clear that new art is being
+        generated; it will reappear when ShowArt arrives.
 
         Args:
-            task: Arbitrary task label shown in the header (e.g. "describe",
-                  "art", "hint").
+            task: Arbitrary task label shown in the header (e.g. "remix",
+                  "art", "persona").
         """
         self._lingering = False
         self._state = _STATE_THINKING
@@ -223,6 +250,8 @@ class ContextPane(Widget):
         self._is_sentence_start = True
         self._set_header(f"[{_COLOR_HEADER_THINKING}]THINKING  [{task}][/]")
         self._set_body("")
+        if task == "art":
+            self.query_one("#art-panel", Static).display = False
 
     def on_token(self, text: str) -> None:
         """Append a streamed token chunk to the THINKING display.
@@ -262,20 +291,19 @@ class ContextPane(Widget):
     def on_stream_done(self, task: str) -> None:
         """Exit THINKING state.
 
-        If task is "art", transitions to ART state (awaiting on_show_art).
-        If tokens were received, saves them to the log and enters a linger
-        period — state stays THINKING so hardware polls don't overwrite the
-        content.  The app calls end_linger() after a delay to return to
-        HARDWARE.  If no tokens were received (e.g. the "persona" task uses
-        call_llm, not call_llm_stream), transitions immediately to HARDWARE.
+        All tasks are treated uniformly: if tokens were received, saves them
+        to the log and enters a linger period (state stays THINKING so hardware
+        polls don't overwrite the content); the app's set_timer() calls
+        end_linger() after a delay.  If no tokens were received (e.g. "persona"
+        uses call_llm, not call_llm_stream), transitions immediately to
+        HARDWARE.
+
+        Art is no longer a special case here — the art panel (top) is updated
+        separately by on_show_art() and is independent of the info panel state.
 
         Args:
             task: The task label that was passed to on_stream_start().
         """
-        if task == "art":
-            self._state = _STATE_ART
-            return
-
         if self._token_buffer:
             # Save completed stream to the log (Rich markup preserved).
             self._log.append((task, "".join(self._token_buffer)))
@@ -319,25 +347,30 @@ class ContextPane(Widget):
             self._set_body(self._render_log())
 
     def on_show_art(self, text: str, room_name: str) -> None:
-        """Display cached ASCII art and enter ART state.
+        """Display ASCII art in the persistent art panel (top of ContextPane).
+
+        This no longer changes the info panel state — THINKING / HARDWARE /
+        LOG continue uninterrupted below.  The art panel persists until the
+        next room entry triggers a new on_stream_start("art") call.
 
         Args:
-            text:      Multi-line ASCII art string.  Square brackets are
-                       escaped so Rich does not try to parse them as markup.
-            room_name: Name of the current room shown in the header.
+            text:      Multi-line framed ASCII art string.  Square brackets are
+                       escaped so Rich does not mis-parse box-drawing characters
+                       as markup tags.
+            room_name: Unused here (room name is already embedded in the frame
+                       by _frame() in ascii_artist.py); kept for API stability.
         """
-        self._state = _STATE_ART
-        self._set_header(f"[{_COLOR_HEADER_ART}]{room_name.upper()}[/]")
-        # Escape brackets in the art text so Rich doesn't mis-parse them as
-        # markup tags (common in box-drawing ASCII art).
+        panel = self.query_one("#art-panel", Static)
         safe = text.replace("[", "\\[")
-        self._set_body(safe)
+        panel.update(safe)
+        panel.display = True
 
     def on_hardware_update(self, snapshot) -> None:
         """Refresh the HARDWARE display from a HardwareSnapshot.
 
-        This is a no-op when the pane is in THINKING or ART state so that
-        hardware polling never interrupts the player's reading experience.
+        This is a no-op when the info panel is in THINKING or LOG state so
+        that hardware polling never interrupts the player's reading experience.
+        The art panel is unaffected by hardware updates.
 
         Args:
             snapshot: A HardwareSnapshot namedtuple (from tui/hw_poller.py)
