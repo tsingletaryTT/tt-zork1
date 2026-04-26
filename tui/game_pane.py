@@ -16,7 +16,6 @@ class GamePane(Widget):
     DEFAULT_CSS = """
     GamePane {
         layout: vertical;
-        border-right: solid $primary-darken-2;
     }
     #game-log {
         width: 100%;
