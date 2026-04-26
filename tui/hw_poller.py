@@ -15,8 +15,6 @@ Parsing notes:
   Tensix/RISC-V utilisation and DRAM bandwidth are not present in the
   basic `tt-smi -s` snapshot; those fields are always returned as -1.
 """
-from __future__ import annotations
-
 import json
 import subprocess
 from dataclasses import dataclass, replace
@@ -108,15 +106,7 @@ def _parse(data: dict) -> HardwareSnapshot:
         temp_c = _hex_to_temp(telem.get("ASIC_TEMPERATURE"))
         power_w = _hex_int(telem.get("TDP"))
 
-        return HardwareSnapshot(
-            tensix_pct=-1.0,
-            riscv_pct=-1.0,
-            dram_read_gbps=-1.0,
-            dram_write_gbps=-1.0,
-            temp_c=temp_c,
-            power_w=power_w,
-            stage_label="",
-        )
+        return replace(_ZEROED, temp_c=temp_c, power_w=power_w)
     except Exception:
         return replace(_ZEROED)
 
