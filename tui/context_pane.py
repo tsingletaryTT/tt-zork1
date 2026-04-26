@@ -41,6 +41,7 @@ Grey before pink so common short words like "going" stay dim even though
 they end in a vivid suffix.
 """
 import re
+import time
 from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
@@ -248,6 +249,9 @@ class ContextPane(Widget):
         self._word_count: int = 0
         self._activity_task: str = ""
 
+        # Monotonic timestamp set when a stream starts; used for elapsed display.
+        self._stream_start: float = 0.0
+
     # ------------------------------------------------------------------
     # Textual compose
     # ------------------------------------------------------------------
@@ -291,6 +295,7 @@ class ContextPane(Widget):
         self._is_sentence_start = True
         self._word_count = 0
         self._activity_task = task
+        self._stream_start = time.monotonic()
         self._set_header(f"[{_COLOR_HEADER_THINKING}]THINKING  [{task}][/]")
         self._set_body("")
         self._set_activity(f"↓  {task}")
@@ -336,8 +341,9 @@ class ContextPane(Widget):
             self._is_sentence_start = segment.rstrip().endswith((".", "!", "?"))
 
         self._set_body("".join(self._token_buffer))
+        elapsed = time.monotonic() - self._stream_start
         self._set_activity(
-            f"↓  {self._activity_task}  ·  {self._word_count} words"
+            f"↓  {self._activity_task}  ·  {elapsed:.1f}s  ·  {self._word_count} words"
         )
 
     def on_stream_done(self, task: str) -> None:
@@ -365,9 +371,9 @@ class ContextPane(Widget):
             # Header changes to DONE to signal the stream has finished.
             self._lingering = True
             self._set_header(f"[{_COLOR_HEADER_THINKING}]DONE  [{task}][/]")
-            # Activity bar: checkmark + final word count.
+            elapsed = time.monotonic() - self._stream_start
             self._set_activity(
-                f"✓  {task}  ·  {self._word_count} words"
+                f"✓  {task}  ·  {elapsed:.1f}s  ·  {self._word_count} words"
             )
         else:
             # No tokens (persona uses call_llm, not call_llm_stream).
@@ -408,6 +414,10 @@ class ContextPane(Widget):
             count = len(self._log)
             self._set_header(f"[#ec96b8]LOG  [{count} entries][/]")
             self._set_body(self._render_log())
+
+    def clear_art(self) -> None:
+        """Hide the art panel while new art is being generated for a new room."""
+        self.query_one("#art-panel", Static).display = False
 
     def on_show_art(self, text: str, room_name: str) -> None:
         """Display ASCII art in the persistent art panel (top of ContextPane).
