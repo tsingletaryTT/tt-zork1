@@ -178,6 +178,10 @@ class ZMachineTuiApp(App[None]):
         # Which engine stage are we running? (Used in the status bar.)
         self._stage = getattr(engine, "_stage", "sim")
 
+        # Auto-play persona name when active; None means manual play.
+        # Written by the game thread, read by _update_status on the event loop.
+        self._auto_persona_name: str | None = None
+
         # Build the Z-machine vocabulary for ContextPane token colorizer.
         try:
             from ttlang.zmachine_v3 import ZMachineV3
@@ -284,9 +288,7 @@ class ZMachineTuiApp(App[None]):
         # Disable the input field while the game thread processes the command;
         # _enable_input() re-enables it once the response arrives.
         event.input.disabled = True
-        self._turn_count += 1
         self._input_queue.put(cmd)
-        self._update_status()
 
     def _handle_meta(self, cmd: str):
         """Process a /slash meta-command.
@@ -295,17 +297,29 @@ class ZMachineTuiApp(App[None]):
             (action, message_text) where action is "" or "quit" and
             message_text is a short status string to display in the game pane.
         """
-        c = cmd.lower()
+        c = cmd.lower().strip()
         if c == "/quit":
             return "quit", "[Goodbye!]"
         if c == "/help":
-            return "", "Commands: /classic  /remix  /help  /quit"
+            return "", (
+                "Commands: /classic  /remix  /auto [persona]  /stop  /help  /quit\n"
+                "  /auto [expert|naive|completionist|experimental] — start LLM auto-play\n"
+                "  /stop — stop auto-play and return to manual mode"
+            )
         if c == "/remix" and self._remix_layer:
             self._remix_layer.active = True
             return "", "[Remix mode ON]"
         if c == "/classic" and self._remix_layer:
             self._remix_layer.active = False
             return "", "[Classic mode]"
+        if c.startswith("/auto"):
+            parts = cmd.split(None, 1)
+            persona_name = parts[1].lower() if len(parts) > 1 else "expert"
+            self._input_queue.put(f"AUTO:{persona_name}")
+            return "", f"[Auto-play starting: {persona_name}]"
+        if c == "/stop":
+            self._input_queue.put("STOP_AUTO")
+            return "", "[Stopping auto-play after current move]"
         return "", f"[Unknown: {cmd}]"
 
     # ------------------------------------------------------------------
@@ -315,22 +329,26 @@ class ZMachineTuiApp(App[None]):
     def _run_game(self) -> None:
         """Drive the Z-machine engine and post UI messages to the event loop.
 
-        This method blocks on self._input_queue.get() between turns.
+        This method normally blocks on self._input_queue.get() between turns.
+        When auto-play is active (_auto_name is set), the LLM picks the next
+        command and re-queues it without waiting for player input.
+
+        Special queue sentinels:
+            None          — shutdown (posted by action_quit_confirm)
+            "STOP_AUTO"   — stop auto-play, return to manual mode
+            "AUTO:<name>" — start auto-play with the named persona
+
         All Textual mutations must go through call_from_thread() so they are
         safe to call from this non-Textual thread.
-
-        Flow per turn:
-            1. Display game startup text.
-            2. Wait for player input (blocks on queue).
-            3. If remix layer is inactive → show raw Z-machine text.
-            4. If remix layer is active:
-               a. For room-entry responses, stream ASCII art generation.
-               b. Stream remix output with per-token callbacks.
         """
         from remix.mode import _looks_like_room_entry, _extract_room_name
-        from remix.llm import call_llm_stream
+        from remix.llm import call_llm, call_llm_stream
         from remix.router import route
         from remix.ascii_artist import _frame as _frame_art
+
+        # Local flag: persona name when auto-play is active, else None.
+        # Also mirrored to self._auto_persona_name for the status bar.
+        _auto_name: str | None = None
 
         # --- startup ---
         out = self._engine.startup()
@@ -338,11 +356,27 @@ class ZMachineTuiApp(App[None]):
         self.call_from_thread(self._enable_input)
 
         while True:
-            # Block until the player submits a command (or None sentinel).
             cmd = self._input_queue.get()
+
+            # --- Sentinel: shutdown ---
             if cmd is None:
-                # Shutdown sentinel posted by action_quit_confirm().
                 break
+
+            # --- Sentinel: stop auto-play ---
+            if cmd == "STOP_AUTO":
+                _auto_name = None
+                self._auto_persona_name = None
+                self.call_from_thread(self._enable_input)
+                self.call_from_thread(self._update_status)
+                continue
+
+            # --- Sentinel: start auto-play ---
+            if cmd.startswith("AUTO:"):
+                _auto_name = cmd[5:].lower()
+                self._auto_persona_name = _auto_name
+                self.call_from_thread(self._update_status)
+                # Kick off with "look" so the LLM sees the current room.
+                cmd = "look"
 
             game_response = self._engine.step(cmd)
 
@@ -359,12 +393,11 @@ class ZMachineTuiApp(App[None]):
                     room_name = _extract_room_name(game_response)
                     key = room_name.strip().lower()
 
-                    # AsciiArtist._cache is a plain dict; we check it directly to
-                    # avoid a duplicate LLM call when we already have art for this room.
+                    # AsciiArtist._cache is a plain dict; check directly to
+                    # avoid a duplicate LLM call when art is already cached.
                     artist_cache = self._remix_layer._artist._cache
 
                     if key not in artist_cache and self._art_system:
-                        # Art not yet generated for this room — stream it now.
                         self.call_from_thread(self.post_message, StreamStart("art"))
                         art_tokens: list[str] = []
 
@@ -379,7 +412,6 @@ class ZMachineTuiApp(App[None]):
 
                         raw_art = "".join(art_tokens).strip()
                         framed = _frame_art(raw_art, room_name) if raw_art else ""
-                        # Store in artist cache so subsequent visits are instant.
                         artist_cache[key] = framed
 
                         self.call_from_thread(
@@ -391,14 +423,11 @@ class ZMachineTuiApp(App[None]):
                             )
 
                     elif key in artist_cache and artist_cache[key]:
-                        # Already cached — show immediately without another LLM call.
                         cached = artist_cache[key]
                         self.call_from_thread(
                             self.post_message, ShowArt(cached, room_name)
                         )
 
-                # Stream the remixed response text to both the THINKING pane
-                # and ultimately to the game log.
                 self.call_from_thread(self.post_message, StreamStart("remix"))
                 from remix.output_remixer import remix_output_stream
 
@@ -410,12 +439,64 @@ class ZMachineTuiApp(App[None]):
                 )
                 self.call_from_thread(self.post_message, StreamDone("remix"))
                 self.call_from_thread(self.post_message, GameText(final_text))
+                # Use final_text as context for the persona's next command.
+                game_response = final_text
 
-            self.call_from_thread(self._enable_input)
-            self.call_from_thread(self._update_status)
+            self._turn_count += 1
 
             if self._engine.game_over:
+                self._auto_persona_name = None
+                # Show postcards in the game pane if the remix layer collected any.
+                if self._remix_layer:
+                    rendered = self._remix_layer.render_postcards()
+                    if rendered:
+                        self.call_from_thread(
+                            self.post_message, GameText("\n" + rendered + "\n")
+                        )
+                self.call_from_thread(self._update_status)
                 break
+
+            # --- Auto-play: LLM picks next command ---
+            if _auto_name:
+                from remix.personas import get_persona
+                try:
+                    persona = get_persona(_auto_name)
+                except ValueError:
+                    _auto_name = None
+                    self._auto_persona_name = None
+                    self.call_from_thread(self._enable_input)
+                    self.call_from_thread(self._update_status)
+                    continue
+
+                self.call_from_thread(self.post_message, StreamStart("persona"))
+                next_cmd = call_llm(
+                    system=persona["system_prompt"],
+                    user=game_response,
+                    model=route("persona"),
+                    temperature=0.7,
+                )
+                self.call_from_thread(self.post_message, StreamDone("persona"))
+
+                if next_cmd and next_cmd.strip():
+                    display_cmd = next_cmd.strip()
+                    self.call_from_thread(
+                        self.post_message,
+                        GameText(f"\n[{persona['name']}] > {display_cmd}\n"),
+                    )
+                    self._input_queue.put(display_cmd)
+                else:
+                    # LLM unavailable — fall back to manual play.
+                    _auto_name = None
+                    self._auto_persona_name = None
+                    self.call_from_thread(
+                        self.post_message,
+                        GameText("[Auto-play: LLM unavailable — returning to manual mode]\n"),
+                    )
+                    self.call_from_thread(self._enable_input)
+            else:
+                self.call_from_thread(self._enable_input)
+
+            self.call_from_thread(self._update_status)
 
     # ------------------------------------------------------------------
     # Helpers called from the event loop (safe to touch widgets directly)
@@ -435,9 +516,9 @@ class ZMachineTuiApp(App[None]):
         from remix.llm import TT_INFERENCE_URL
         stage = _STAGE_LABELS.get(self._stage, self._stage)
         mode = "Remix" if (self._remix_layer and self._remix_layer.active) else "Classic"
-        # Show only host:port — strip scheme and path.
         host = TT_INFERENCE_URL.split("//")[-1].split("/")[0]
-        bar = f"{stage} · {mode} · {host} · {self._turn_count} commands"
+        auto = f" · Auto:{self._auto_persona_name}" if self._auto_persona_name else ""
+        bar = f"{stage} · {mode}{auto} · {host} · {self._turn_count} turns"
         try:
             self.query_one("#status-bar", Static).update(bar)
         except Exception:

@@ -188,9 +188,16 @@ def test_remix_layer_passthrough_when_inactive():
     assert result == "The mailbox is now open."
 
 
-def test_remix_layer_on_game_end_calls_display():
+def test_remix_layer_on_game_end_no_postcards(capsys):
+    """on_game_end() prints nothing when no postcards have been collected."""
     from remix.mode import RemixLayer
     layer = RemixLayer()
-    with patch.object(layer._enhancer, "display") as mock_display:
-        layer.on_game_end()
-    mock_display.assert_called_once()
+    layer.on_game_end()
+    assert capsys.readouterr().out == ""
+
+
+def test_remix_layer_render_postcards_empty():
+    """render_postcards() returns empty string when no postcards collected."""
+    from remix.mode import RemixLayer
+    layer = RemixLayer()
+    assert layer.render_postcards() == ""

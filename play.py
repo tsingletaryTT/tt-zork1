@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -80,6 +81,53 @@ def game_loop(engine, remix_layer=None) -> None:
             break
 
 
+def persona_loop(
+    engine,
+    remix_layer,
+    persona: dict,
+    max_turns: int = 50,
+) -> None:
+    """Drive the game automatically using an LLM persona to choose each command.
+
+    The persona's system_prompt instructs the LLM to output only the next Zork
+    command given the current game text.  remix_layer (always active here)
+    rewrites responses and collects postcards exactly as in interactive play.
+
+    Stops when the game ends (death/victory), the LLM returns an empty
+    response, or max_turns is reached.
+    """
+    from remix.llm import call_llm
+    from remix.router import route
+
+    out = engine.startup()
+    _display(out, remix_layer, user_input=None, is_startup=True)
+
+    for _turn in range(max_turns):
+        cmd = call_llm(
+            system=persona["system_prompt"],
+            user=out,
+            model=route("persona"),
+            temperature=0.7,
+        )
+        if not cmd or not cmd.strip():
+            print(f"\n[{persona['name']}: LLM returned no command — stopping]")
+            break
+        cmd = cmd.strip()
+        print(f"\n[{persona['name']}] > {cmd}")
+
+        out = engine.step(cmd)
+        _display(out, remix_layer, user_input=cmd)
+
+        if getattr(engine, "game_over", False):
+            if remix_layer:
+                remix_layer.on_game_end()
+            return
+    else:
+        print(f"\n[{persona['name']}: reached {max_turns}-turn limit]")
+        if remix_layer:
+            remix_layer.on_game_end()
+
+
 def _display(text: str, remix_layer, user_input: str | None,
              is_startup: bool = False) -> None:
     if remix_layer and remix_layer.active and not is_startup and user_input:
@@ -117,9 +165,11 @@ def main() -> None:
     parser.add_argument("--remix", action="store_true",
                         help="Enable LLM remix layer at startup")
     parser.add_argument("--model", default=None,
-                        help="Override LLM model (default: qwen2.5:1.5b)")
+                        help="Override LLM model for all remix calls")
     parser.add_argument("--persona", default=None,
                         help="Auto-play persona (expert/naive/completionist/experimental)")
+    parser.add_argument("--turns", type=int, default=50,
+                        help="Max turns in persona auto-play mode (default: 50)")
     parser.add_argument("--tui", action="store_true",
                         help="Launch Textual TUI (side panel with art, LLM stream, hardware)")
     args = parser.parse_args()
@@ -128,13 +178,17 @@ def main() -> None:
         print(f"Error: game file not found: {args.game}", file=sys.stderr)
         sys.exit(1)
 
+    # Set model override before any LLM calls so remix.router.route() picks it up.
+    if args.model:
+        os.environ["ZORK_LLM_MODEL"] = args.model
+
     print(BANNER)
     print(f"\n  {STAGE_LABELS.get(args.stage, args.stage)}\n")
 
     remix_layer = None
-    if args.remix:
+    if args.remix or args.persona:
         from remix.mode import RemixLayer
-        remix_layer = RemixLayer(model=args.model)
+        remix_layer = RemixLayer()
         print("  [Remix layer active — type /classic to disable]\n")
 
     engine = build_engine(args.stage, args.game)
@@ -143,13 +197,19 @@ def main() -> None:
             try:
                 from tui.app import ZMachineTuiApp
             except ImportError:
-                print("Error: 'textual' not installed. Run: pip install textual", file=sys.stderr)
+                print("Error: 'textual' not installed. Run: pip install textual",
+                      file=sys.stderr)
                 sys.exit(1)
             ZMachineTuiApp(
                 engine=engine,
                 remix_layer=remix_layer,
                 game_path=args.game,
             ).run()
+        elif args.persona:
+            from remix.personas import get_persona
+            persona = get_persona(args.persona)
+            print(f"  [Auto-play: {persona['name']} · {args.turns}-turn limit]\n")
+            persona_loop(engine, remix_layer, persona, max_turns=args.turns)
         else:
             game_loop(engine, remix_layer)
     finally:

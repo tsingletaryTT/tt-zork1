@@ -29,8 +29,6 @@ Architecture:
 On game end, on_game_end() triggers NarrativeEnhancer.display() which prints all
 collected postcards to the terminal.
 """
-from __future__ import annotations
-
 from remix.input_mapper import map_input
 from remix.output_remixer import remix_output
 from remix.ascii_artist import AsciiArtist
@@ -80,7 +78,7 @@ class RemixLayer:
     on_game_end().
     """
 
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(self) -> None:
         # Public flag: play.py sets this via /classic and /remix commands.
         self.active: bool = True
 
@@ -92,11 +90,6 @@ class RemixLayer:
 
         # Track whether we have seen the first room yet (for arrival postcard).
         self._first_room: bool = True
-
-        # model override — currently unused at this layer; individual LLM
-        # calls use remix.router.route() which already checks ZORK_LLM_MODEL.
-        # Stored for future use when we want per-layer model control.
-        self._model = model
 
     def process(self, user_input: str, zork_response: str) -> str:
         """Process one game turn through the full remix pipeline.
@@ -154,11 +147,21 @@ class RemixLayer:
 
         return "".join(parts)
 
-    def on_game_end(self) -> None:
-        """Display postcards collected during the session.
+    def render_postcards(self) -> str:
+        """Return postcards as a formatted string, or '' if none collected.
 
-        Called by play.py when the game loop detects a death or victory.
-        Delegates to NarrativeEnhancer.display() which renders all postcards
-        and prints them to stdout.
+        Used by the TUI to post postcards as GameText rather than printing
+        to stdout behind the Textual screen.
         """
-        self._enhancer.display()
+        from remix.narrative_enhancer import _render_postcards
+        return _render_postcards(self._enhancer.get_postcards())
+
+    def on_game_end(self) -> None:
+        """Print postcards to stdout (CLI / terminal mode).
+
+        The TUI calls render_postcards() and posts the result as GameText
+        instead of calling this method, so output appears in the game pane.
+        """
+        rendered = self.render_postcards()
+        if rendered:
+            print("\n" + rendered)
