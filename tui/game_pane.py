@@ -5,8 +5,6 @@ Receives GameText messages from the game thread via the app's event loop.
 The Input widget at the bottom captures player commands; Input.Submitted
 events bubble up to ZMachineTuiApp for queuing.
 """
-from __future__ import annotations
-
 from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Input, RichLog
@@ -36,7 +34,10 @@ class GamePane(Widget):
         yield Input(placeholder="> type a command", id="game-input")
 
     def write_game_text(self, text: str) -> None:
-        """Append Z-machine or remixed output (default colour, no markup)."""
+        """Append Z-machine or remixed output, coloured #e8f0f2 (off-white).
+
+        Appends a blank line after the content block to visually separate turns.
+        """
         log = self.query_one("#game-log", RichLog)
         for line in text.rstrip().splitlines():
             log.write(f"[#e8f0f2]{line}[/]")
