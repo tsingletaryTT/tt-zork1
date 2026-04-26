@@ -1,0 +1,367 @@
+# tui/context_pane.py
+"""ContextPane — right panel with three states: THINKING, ART, HARDWARE.
+
+State machine:
+    HARDWARE (default)
+      → THINKING  on StreamStart message
+          → ART       on StreamDone(task="art")
+          → HARDWARE  on StreamDone(task=other)
+      → ART           on ShowArt message
+          → THINKING  on next StreamStart
+
+Token colorizer rules (classify_token):
+    1. teal  #4fd1c5  — word in Z-machine vocabulary frozenset
+    2. pink  #ec96b8  — length ≥ 8 AND ends in vivid suffix
+    3. amber #f4c471  — capitalised mid-sentence OR follows a/an/the/this/that
+    4. grey  #607d8b  — articles, prepositions, conjunctions (stopwords)
+    5. default #e8f0f2 — everything else
+"""
+from __future__ import annotations
+
+from textual.app import ComposeResult
+from textual.widget import Widget
+from textual.widgets import Static
+
+# ---------------------------------------------------------------------------
+# Token colorizer
+# ---------------------------------------------------------------------------
+
+# Common low-information words that should appear visually subdued so the
+# player's eye is drawn to meaningful words instead.
+_STOPWORDS = frozenset({
+    "a", "an", "the", "this", "that", "these", "those",
+    "is", "are", "was", "were", "be", "been",
+    "in", "on", "at", "to", "of", "and", "or", "but",
+    "it", "you", "i", "we", "he", "she", "they",
+    "with", "for", "from", "by", "not",
+})
+
+# Adjective/adverb suffixes associated with vivid, evocative prose.  Only
+# applied to long words (≥ 8 characters) to avoid false positives on
+# common short words like "going" or "truly".
+_VIVID_ENDS = ("ous", "ful", "ing", "ish", "ent", "ive", "ly")
+
+# Words that signal a noun phrase is starting.  If the previous token is one
+# of these, the current token is colored amber as a potential key noun.
+_CONTEXT_NOUNS = frozenset({"a", "an", "the", "this", "that"})
+
+
+def classify_token(
+    token: str,
+    vocabulary: frozenset[str],
+    prev_token: str = "",
+    is_sentence_start: bool = False,
+) -> str:
+    """Return a hex color code for this display token.
+
+    Priority order:
+        1. Game vocabulary  → teal  #4fd1c5
+        2. Stopword         → grey  #607d8b
+        3. Vivid suffix     → pink  #ec96b8
+        4. Noun-phrase cue  → amber #f4c471
+        5. Default          → #e8f0f2
+
+    Args:
+        token:             One whitespace-delimited word (may include leading/
+                           trailing punctuation such as commas and quotes).
+        vocabulary:        Game dictionary frozenset (typically from
+                           tui/vocabulary.py).  Pass frozenset() to disable
+                           teal highlighting.
+        prev_token:        The bare (already stripped + lowercased) word that
+                           appeared immediately before this one.  Used for
+                           the "follows article" amber rule.
+        is_sentence_start: True when this token begins a new sentence.  Used
+                           to suppress the "capitalised mid-sentence" amber
+                           rule at sentence boundaries.
+
+    Returns:
+        A CSS hex color string, e.g. "#4fd1c5".
+    """
+    # Strip common punctuation before vocabulary / suffix checks so that
+    # "mailbox," still matches the vocab entry "mailbox".
+    clean = token.strip(".,!?;:'\"-()[]").lower()
+    if not clean:
+        return "#e8f0f2"
+
+    # Rule 1: game vocabulary (teal) — checked first so vocab words always
+    # stand out even when they coincidentally have vivid suffixes.
+    if clean in vocabulary:
+        return "#4fd1c5"
+
+    # Rule 4 (stopwords, checked before vivid suffix): keeps very common words
+    # like "going" visually dim even though they match the "ing" suffix.
+    if clean in _STOPWORDS:
+        return "#607d8b"
+
+    # Rule 2: vivid descriptive suffix + minimum length guard (pink).
+    if len(clean) >= 8 and any(clean.endswith(s) for s in _VIVID_ENDS):
+        return "#ec96b8"
+
+    # Rule 3: capitalised mid-sentence OR following a determiner/article
+    # (amber).  The is_sentence_start guard prevents marking the first word
+    # of every sentence amber just because it is capitalised.
+    if (token[0].isupper() and not is_sentence_start) or prev_token.lower() in _CONTEXT_NOUNS:
+        return "#f4c471"
+
+    # Rule 5: default off-white.
+    return "#e8f0f2"
+
+
+# ---------------------------------------------------------------------------
+# Internal state constants
+# ---------------------------------------------------------------------------
+
+_STATE_HARDWARE = "hardware"
+_STATE_THINKING = "thinking"
+_STATE_ART = "art"
+
+_COLOR_HEADER_THINKING = "#4fd1c5"
+_COLOR_HEADER_ART = "#27ae60"
+_COLOR_HEADER_HW = "#4fd1c5"
+
+
+# ---------------------------------------------------------------------------
+# ContextPane widget
+# ---------------------------------------------------------------------------
+
+
+class ContextPane(Widget):
+    """Right panel that switches between THINKING, ART, and HARDWARE states.
+
+    THINKING — streams LLM tokens with per-word color highlighting via
+               classify_token().
+    ART      — displays cached ASCII art for the current room (generated
+               off-screen by the LLM with task="art").
+    HARDWARE — shows live tt-smi telemetry: Tensix/RISC-V utilisation, DRAM
+               bandwidth, temperature, and power.
+
+    Transitions are driven by the app calling the public on_*() methods:
+
+        on_stream_start(task)         → enter THINKING
+        on_token(text)                → append colored tokens (THINKING only)
+        on_stream_done(task)          → exit THINKING → ART or HARDWARE
+        on_show_art(text, room_name)  → enter ART directly
+        on_hardware_update(snapshot)  → refresh HARDWARE display
+    """
+
+    DEFAULT_CSS = """
+    ContextPane {
+        width: 40;
+        layout: vertical;
+    }
+    #ctx-header {
+        height: 2;
+        padding: 0 1;
+        color: #4fd1c5;
+        background: #0f2a35;
+    }
+    #ctx-body {
+        height: 1fr;
+        padding: 0 1;
+        overflow-y: auto;
+    }
+    """
+
+    def __init__(self, vocabulary: frozenset[str], **kwargs) -> None:
+        """Initialise ContextPane.
+
+        Args:
+            vocabulary: Game-dictionary frozenset passed to classify_token()
+                        to highlight known Z-machine nouns in teal.
+            **kwargs:   Forwarded to Widget.__init__() so that Textual can
+                        inject id=, classes=, and other widget parameters.
+        """
+        super().__init__(**kwargs)
+        self._vocabulary = vocabulary
+        self._state = _STATE_HARDWARE
+
+        # Accumulated Rich markup fragments for the THINKING body.
+        self._token_buffer: list[str] = []
+
+        # Colorizer context state, reset on each stream.
+        self._prev_token = ""
+        self._is_sentence_start = True
+
+    # ------------------------------------------------------------------
+    # Textual compose
+    # ------------------------------------------------------------------
+
+    def compose(self) -> ComposeResult:
+        """Yield child widgets: a header strip and a scrollable body."""
+        yield Static("", id="ctx-header")
+        yield Static("", id="ctx-body", markup=True)
+
+    # ------------------------------------------------------------------
+    # Public methods called by the app's event handlers
+    # ------------------------------------------------------------------
+
+    def on_stream_start(self, task: str) -> None:
+        """Transition to THINKING state and clear the display body.
+
+        Args:
+            task: Arbitrary task label shown in the header (e.g. "describe",
+                  "art", "hint").
+        """
+        self._state = _STATE_THINKING
+        self._token_buffer = []
+        self._prev_token = ""
+        self._is_sentence_start = True
+        self._set_header(f"[{_COLOR_HEADER_THINKING}]THINKING  [{task}][/]")
+        self._set_body("")
+
+    def on_token(self, text: str) -> None:
+        """Append a streamed token chunk to the THINKING display.
+
+        Each space-delimited word in *text* is classified with classify_token()
+        and wrapped in a Rich color tag before being appended to the body.
+
+        Args:
+            text: One or more words (possibly with embedded spaces) received
+                  from the LLM stream.
+        """
+        if self._state != _STATE_THINKING:
+            return
+
+        for word in text.split(" "):
+            if not word:
+                # Preserve spacing between tokens.
+                self._token_buffer.append(" ")
+                continue
+
+            color = classify_token(
+                word,
+                self._vocabulary,
+                prev_token=self._prev_token,
+                is_sentence_start=self._is_sentence_start,
+            )
+            self._token_buffer.append(f"[{color}]{word}[/] ")
+
+            # Advance colorizer context.
+            self._prev_token = word.strip(".,!?;:'\"-()[]").lower()
+            # A token ending in sentence-terminal punctuation starts a new
+            # sentence for the next word.
+            self._is_sentence_start = word.rstrip().endswith((".", "!", "?"))
+
+        self._set_body("".join(self._token_buffer))
+
+    def on_stream_done(self, task: str) -> None:
+        """Exit THINKING state.
+
+        If task is "art" the pane transitions to ART state (waiting for the
+        matching on_show_art call).  Any other task transitions back to
+        HARDWARE.
+
+        Args:
+            task: The task label that was passed to on_stream_start().
+        """
+        if task == "art":
+            self._state = _STATE_ART
+        else:
+            self._state = _STATE_HARDWARE
+            self._set_header(f"[{_COLOR_HEADER_HW}]HARDWARE[/]")
+
+    def on_show_art(self, text: str, room_name: str) -> None:
+        """Display cached ASCII art and enter ART state.
+
+        Args:
+            text:      Multi-line ASCII art string.  Square brackets are
+                       escaped so Rich does not try to parse them as markup.
+            room_name: Name of the current room shown in the header.
+        """
+        self._state = _STATE_ART
+        self._set_header(f"[{_COLOR_HEADER_ART}]{room_name.upper()}[/]")
+        # Escape brackets in the art text so Rich doesn't mis-parse them as
+        # markup tags (common in box-drawing ASCII art).
+        safe = text.replace("[", "\\[")
+        self._set_body(safe)
+
+    def on_hardware_update(self, snapshot) -> None:
+        """Refresh the HARDWARE display from a HardwareSnapshot.
+
+        This is a no-op when the pane is in THINKING or ART state so that
+        hardware polling never interrupts the player's reading experience.
+
+        Args:
+            snapshot: A HardwareSnapshot namedtuple (from tui/hw_poller.py)
+                      with fields tensix_pct, riscv_pct, dram_read_gbps,
+                      dram_write_gbps, temp_c, power_w.  Fields set to -1
+                      indicate the value is unavailable.
+        """
+        if self._state != _STATE_HARDWARE:
+            return
+        self._set_header(f"[{_COLOR_HEADER_HW}]HARDWARE[/]")
+        self._set_body(_render_hardware(snapshot))
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _set_header(self, text: str) -> None:
+        """Update the header Static widget with Rich-markup text."""
+        self.query_one("#ctx-header", Static).update(text)
+
+    def _set_body(self, text: str) -> None:
+        """Update the body Static widget with Rich-markup text."""
+        self.query_one("#ctx-body", Static).update(text)
+
+
+# ---------------------------------------------------------------------------
+# Hardware rendering helpers
+# ---------------------------------------------------------------------------
+
+
+def _render_hardware(snap) -> str:
+    """Format a HardwareSnapshot as a Rich-marked-up multi-line string.
+
+    Returns a "pure Python — no hardware" notice when all fields are -1
+    (i.e. the poller is running in simulation mode without a real device).
+
+    Args:
+        snap: HardwareSnapshot with numeric fields; -1 means unavailable.
+
+    Returns:
+        Rich markup string suitable for passing to Static.update().
+    """
+    if all(
+        getattr(snap, f) == -1
+        for f in ("tensix_pct", "riscv_pct", "dram_read_gbps", "dram_write_gbps", "temp_c", "power_w")
+    ):
+        return "[#607d8b]pure Python — no hardware[/]"
+
+    parts: list[str] = []
+
+    if snap.tensix_pct != -1:
+        bar = _progress_bar(snap.tensix_pct, "#27ae60")
+        parts.append(f"[#4fd1c5]TENSIX[/]\n{bar}  {snap.tensix_pct:.0f}%\n")
+    if snap.riscv_pct != -1:
+        bar = _progress_bar(snap.riscv_pct, "#f4c471")
+        parts.append(f"[#f4c471]RISC-V[/]\n{bar}  {snap.riscv_pct:.0f}%\n")
+    if snap.dram_read_gbps != -1:
+        parts.append(
+            f"[#607d8b]DRAM[/]  "
+            f"[#4fd1c5]▸ {snap.dram_read_gbps:.1f} GB/s r[/]  "
+            f"[#81e6d9]▸ {snap.dram_write_gbps:.1f} GB/s w[/]\n"
+        )
+    if snap.temp_c != -1:
+        parts.append(f"[#607d8b]temp[/]  [#e8f0f2]{snap.temp_c:.0f}°C[/]")
+    if snap.power_w != -1:
+        parts.append(f"  [#607d8b]power[/]  [#e8f0f2]{snap.power_w:.0f}W[/]")
+
+    return "".join(parts)
+
+
+def _progress_bar(pct: float, color: str, width: int = 10) -> str:
+    """Render a Unicode block progress bar as Rich markup.
+
+    Args:
+        pct:   Percentage value 0–100.
+        color: Hex color for the filled portion.
+        width: Total bar width in characters (default 10).
+
+    Returns:
+        Rich markup string, e.g. "[#27ae60]████[/][#2d3142]░░░░░░[/]".
+    """
+    filled = int(pct / 100 * width)
+    bar_on = "█" * filled
+    bar_off = "░" * (width - filled)
+    return f"[{color}]{bar_on}[/][#2d3142]{bar_off}[/]"
