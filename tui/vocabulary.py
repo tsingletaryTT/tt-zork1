@@ -29,8 +29,6 @@ extract_vocabulary(zm) -> frozenset[str]
 
     All of these are satisfied by ttlang.zmachine_v3.ZMachineV3.
 """
-from __future__ import annotations
-
 import re
 
 # Minimum token length to include; filters out single-letter Z-chars
