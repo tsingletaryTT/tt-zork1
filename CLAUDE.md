@@ -1845,3 +1845,55 @@ Hardware details: 4 Blackhole chips detected (chips 0-3, two p300c boards), firm
 ### TT-Lang Scaffolding Status
 
 `ttlang/zork_kernel.py` provides the `@ttl.kernel` skeleton with `DRAM_READ` and `DRAM_WRITE` operation types. This is the entry point for Task 10 follow-up work: compiling the interpreter logic to RISC-V via the TT-Lang compiler and running it fully on-chip, replacing the Python host loop with a hardware execution graph.
+
+---
+
+## Phase TUI: Textual Terminal UI + Multi-Game Cleanup (Complete ✅ — Apr 27, 2026)
+
+**Branch:** `feature/tui-status`
+
+**What Happened:**
+Rewrote the front-end into a full Textual terminal UI and cleaned up the repo to match the Python-first architecture. The old C/Frotz source tree, TT-Metal kernel experiments, and session-log markdown files were removed; only active code is in tree.
+
+**New Features:**
+1. **Textual TUI** (`tui/`) — full-terminal interface split into game pane (left) and context pane (right)
+   - Context pane cycles: `HARDWARE` (live tt-smi telemetry) → `THINKING` (streaming LLM tokens, vocabulary-aware colour) → `ART` (ASCII room art)
+   - Art generation runs in a background thread so it never blocks input
+   - Elapsed timer on slow LLM calls; activity bar while thinking
+   - Status bar: stage, remix mode, LLM host, turn count
+
+2. **Startup menu** — `python play.py` with no args presents an interactive game/stage/remix selection menu; `--menu` forces it even when other flags are present
+
+3. **More games** — `game/zork2.z3`, `game/zork3.z3`, `advent.z5` added; all four listed in `game/LICENSES.md`
+
+4. **Zork I–III MIT-licensed** — Microsoft/Activision open-sourced the Infocom Z-machine games in November 2025; credits and footer updated accordingly
+
+5. **Model auto-detect** — if `ZORK_LLM_MODEL` is unset, the remix layer queries `/v1/models` and picks the first available model
+
+6. **Literal command bypass** — known Zork command syntax (single words, canonical verb patterns) skips LLM translation entirely for instant response
+
+**Architecture now:**
+```
+play.py           ← entry point + startup menu
+engines/
+  sim.py          ← stage 1: pure Python
+  device.py       ← stage 2: QB2 DRAM-backed
+  riscv.py        ← stage 3: RISC-V kernel dispatch
+remix/            ← LLM layer (input mapping, output remix, art, postcards)
+tui/              ← Textual UI (app, game pane, context pane, hw poller, vocabulary)
+ttlang/           ← Python Z-machine V3 interpreter + hardware helpers
+game/             ← story files: zork1.z3, zork2.z3, zork3.z3, advent.z5
+tests/            ← pytest suite (72 tests pass; 1 hardware test skipped offline)
+```
+
+**Files removed (cleanup):**
+- `src/` — C/Frotz implementation and TT-Metal C++ kernels (preserved in git history)
+- `docs/` — session-log markdown files from Phases 1–3
+- Root-level status/milestone/session markdown files
+- Old shell scripts (`run-zork-*.sh`, `play-zork-*.sh`, `demo-*.sh`)
+- ZIL source files and legacy `.cpp` test harnesses
+
+**Key decisions:**
+- Kept `src/` history in git but removed from working tree — the C++ interpreter work is documented in CLAUDE.md and accessible via `git log`
+- Art generation threaded to keep TUI responsive during LLM calls
+- Startup menu default so new users don't need to read flags first

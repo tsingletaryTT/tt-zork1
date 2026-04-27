@@ -27,6 +27,9 @@ This project runs the Z-machine on those three levels of the Tenstorrent stack:
 # Activate the TT-Lang pyenv (required for stages 2 and 3)
 source ~/code/tt-lang/build/env/activate
 
+# Interactive startup menu (game + stage + remix selection)
+python play.py
+
 # Stage 1 — pure Python, no hardware needed
 python play.py --stage sim
 
@@ -46,7 +49,9 @@ python play.py --stage sim --persona expert --turns 40
 python play.py --stage device --remix --tui
 ```
 
-The game file is `game/zork1.z3`. Use `--game` to point at a different Z3 file.
+Run with no arguments to get an interactive startup menu that lets you choose the game file, stage, and remix mode. Pass `--stage` and `--game` together to skip the menu. Use `--menu` to force the menu even when other flags are present.
+
+Available game files in `game/`: `zork1.z3`, `zork2.z3`, `zork3.z3`, `advent.z5`. Use `--game` to point at any Z-machine story file.
 
 ---
 
@@ -189,7 +194,11 @@ tui/
   vocabulary.py          # Z-machine dictionary extractor for token colorizer
 prompts/                 # LLM system prompts (editable plain text)
 game/
-  zork1.z3               # Zork I V3 bytecode (86 838 bytes)
+  zork1.z3               # Zork I V3 bytecode (86 838 bytes, MIT-licensed)
+  zork2.z3               # Zork II V3 bytecode (MIT-licensed)
+  zork3.z3               # Zork III V3 bytecode (MIT-licensed)
+  advent.z5              # Colossal Cave Adventure Z5 (Graham Nelson port)
+  LICENSES.md            # Per-file license details
 tests/                   # pytest test suite (Python components)
 src/                     # Earlier C/Frotz implementation (historical)
 ```
@@ -221,4 +230,4 @@ The test suite covers the Python Z-machine interpreter, the LLM layer (mocked), 
 
 ---
 
-*Zork I is copyright © Infocom, Inc. The `.z3` game file is included for development and demonstration purposes.*
+*Zork I, II, and III were open-sourced under the MIT License in November 2025 by Microsoft, Team Xbox, and Activision. See `game/LICENSES.md` for full details.*
