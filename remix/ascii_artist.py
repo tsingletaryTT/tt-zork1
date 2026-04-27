@@ -14,6 +14,35 @@ _SYSTEM_PROMPT = (
     Path(__file__).parent.parent / "prompts" / "ascii_system.txt"
 ).read_text()
 
+# Prefixes that indicate the model output natural-language preamble instead of art.
+# Small models frequently emit these despite being told not to.
+_PREAMBLE_PREFIXES = (
+    "```", "Here", "Sure", "The ", "This", "Below", "//", "I ", "Let ",
+    "OK", "Room", "Art", "Note", "Since", "For ",
+)
+
+
+def _strip_preamble(raw: str) -> str:
+    """Drop leading lines that look like natural language or code fences.
+
+    Small models often prepend "Here is the ASCII art:" or open a code
+    block before the actual art lines, despite the system prompt saying
+    not to. Strip them so _frame() receives clean art lines only.
+    """
+    lines = raw.strip().splitlines()
+    while lines:
+        stripped = lines[0].strip()
+        if stripped.startswith(_PREAMBLE_PREFIXES) or (
+            len(stripped) < 6 and not any(c in stripped for c in "#.|~*/\\-_=^@+")
+        ):
+            lines.pop(0)
+        else:
+            break
+    # Also strip trailing code-fence lines
+    while lines and lines[-1].strip().startswith("```"):
+        lines.pop()
+    return "\n".join(lines)
+
 
 def _frame(art: str, room_name: str) -> str:
     """Wrap ASCII art with a room-name header and thin horizontal rules.
@@ -53,12 +82,12 @@ class AsciiArtist:
             system=_SYSTEM_PROMPT,
             user=prompt,
             model=route("art"),
-            temperature=0.9,
+            temperature=0.75,
         )
         if not raw or not raw.strip():
             self._cache[key] = ""
             return ""
 
-        result = _frame(raw, room_name)
+        result = _frame(_strip_preamble(raw), room_name)
         self._cache[key] = result
         return result

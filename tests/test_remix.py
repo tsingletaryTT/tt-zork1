@@ -182,6 +182,27 @@ def test_ascii_artist_caches_per_room():
     assert mock_llm.call_count == 1   # second call is cached
 
 
+def test_ascii_artist_strips_preamble():
+    """Model-emitted preamble lines are dropped before framing."""
+    from remix.ascii_artist import _strip_preamble
+    preamble_cases = [
+        "Here is the ASCII art:\n###...###\n###...###",
+        "Sure! Here you go:\n###...###\n###...###",
+        "```\n###...###\n###...###\n```",
+        "// forest, trees, path\n###...###\n###...###",
+    ]
+    for raw in preamble_cases:
+        result = _strip_preamble(raw)
+        assert result.startswith("#"), f"Preamble not stripped from: {raw!r}"
+
+
+def test_ascii_artist_preserves_clean_art():
+    """Art that starts with art characters passes through unchanged."""
+    from remix.ascii_artist import _strip_preamble
+    clean = "###...###\n###...###\n###...###"
+    assert _strip_preamble(clean) == clean
+
+
 def test_ascii_artist_returns_empty_on_llm_failure():
     from remix.ascii_artist import AsciiArtist
     artist = AsciiArtist()
