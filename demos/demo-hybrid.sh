@@ -10,9 +10,8 @@
 #
 # Record with:
 #   asciinema rec -t "Zork × Llama — Hybrid Mode" demos/hybrid.cast
-set -e
-cd "$(dirname "$0")/.."
-source ~/code/tt-lang/build/env/activate
+cd "$(dirname "$0")/.." || { echo "ERROR: could not cd to repo root"; exit 1; }
+source ~/code/tt-lang/build/env/activate || { echo "ERROR: tt-lang env not found"; exit 1; }
 
 export ZORK_LLM_MODEL="${ZORK_LLM_MODEL:-meta-llama/Llama-3.3-70B-Instruct}"
 export ZORK_LLM_URL="${ZORK_LLM_URL:-http://localhost:8000/v1/chat/completions}"
@@ -33,7 +32,7 @@ sleep 3
   echo "open mailbox"
   sleep 12      # LLM rewrites the mailbox response
   echo "take leaflet"
-  sleep 10
+  sleep 10      # LLM rewrites the take confirmation
   echo "read leaflet"
   sleep 15      # longer — leaflet is multi-paragraph
   echo "go north"
