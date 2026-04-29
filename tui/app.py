@@ -167,6 +167,8 @@ class ZMachineTuiApp(App[None]):
         engine,
         remix_layer=None,
         game_path: str = "game/zork1.z3",
+        initial_persona: str | None = None,
+        initial_turns: int = 0,
     ) -> None:
         super().__init__()
         self._engine = engine
@@ -183,6 +185,12 @@ class ZMachineTuiApp(App[None]):
         # Auto-play persona name when active; None means manual play.
         # Written by the game thread, read by _update_status on the event loop.
         self._auto_persona_name: str | None = None
+
+        # If set, auto-play starts immediately on mount with this persona.
+        # A turn limit of 0 means unlimited (manual /stop required).
+        self._initial_persona: str | None = initial_persona
+        self._initial_turns: int = initial_turns
+        self._auto_turn_count: int = 0  # turns taken in the current auto-play session
 
         # Build the Z-machine vocabulary for ContextPane token colorizer.
         try:
@@ -226,6 +234,9 @@ class ZMachineTuiApp(App[None]):
         # Game thread runs as a daemon so it dies automatically when the app exits.
         self._game_thread = threading.Thread(target=self._run_game, daemon=True)
         self._game_thread.start()
+
+        if self._initial_persona:
+            self._input_queue.put(f"AUTO:{self._initial_persona}")
 
     # ------------------------------------------------------------------
     # Hardware polling (called on the Textual event loop by set_interval)
@@ -503,6 +514,12 @@ class ZMachineTuiApp(App[None]):
                         GameText(f"\n[{persona['name']}] > {display_cmd}\n"),
                     )
                     self._input_queue.put(display_cmd)
+
+                    # Stop auto-play when the turn limit is reached.
+                    if self._initial_turns > 0:
+                        self._auto_turn_count += 1
+                        if self._auto_turn_count >= self._initial_turns:
+                            self._input_queue.put("STOP_AUTO")
                 else:
                     # LLM unavailable — fall back to manual play.
                     _auto_name = None

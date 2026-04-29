@@ -355,6 +355,8 @@ def main() -> None:
                 engine=engine,
                 remix_layer=remix_layer,
                 game_path=args.game,
+                initial_persona=args.persona,
+                initial_turns=args.turns,
             ).run()
         elif args.persona:
             from remix.personas import get_persona
