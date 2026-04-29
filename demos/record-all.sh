@@ -96,25 +96,39 @@ start_inference_server() {
         > "$log" 2>&1
     ) &
 
-    # Poll until the model endpoint responds (up to 5 minutes).
-    local timeout=300
+    # Wait for the server's distinct ready marker in the log.
+    # tt-inference-server prints exactly this line when the model is warm:
+    #   "All devices are warmed up and ready"
+    local ready_marker="All devices are warmed up and ready"
+    local timeout=360
     local elapsed=0
-    local interval=15
-    echo "  Waiting for model to be ready (up to ${timeout}s)..."
+    local interval=5
+    echo "  Waiting for '${ready_marker}' in logs (up to ${timeout}s)..."
     while [[ $elapsed -lt $timeout ]]; do
-        if curl -sf --max-time 3 "${LLM_URL%/chat/completions}/models" >/dev/null 2>&1; then
+        if grep -qF "$ready_marker" "$log" 2>/dev/null; then
             echo "  Inference server ready! (${elapsed}s)"
             _llm_server_started=1
             return 0
         fi
+        # Also check that the background process is still alive.
+        if ! jobs %% >/dev/null 2>&1; then
+            echo ""
+            echo "  ERROR: Inference server process exited unexpectedly."
+            echo "  Check logs: ${log}"
+            tail -20 "$log" 2>/dev/null || true
+            exit 1
+        fi
         sleep "$interval"
         elapsed=$((elapsed + interval))
-        echo "  Still waiting... (${elapsed}s elapsed)"
+        if (( elapsed % 30 == 0 )); then
+            echo "  Still waiting... (${elapsed}s elapsed)"
+        fi
     done
 
     echo ""
-    echo "  ERROR: Inference server did not respond within ${timeout}s."
+    echo "  ERROR: Inference server did not become ready within ${timeout}s."
     echo "  Check logs: ${log}"
+    tail -20 "$log" 2>/dev/null || true
     exit 1
 }
 
