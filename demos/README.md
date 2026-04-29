@@ -1,6 +1,6 @@
 # Demo Recordings
 
-Ten asciinema cast files — two per demo: the game session and the hardware visualization. Run `./demos/record-all.sh hybrid ai` to generate the hybrid and ai casts.
+Eight asciinema cast files — two per demo: the game session and the hardware visualization. The hybrid and ai casts are generated when you run `./demos/record-all.sh` (the server starts automatically after the device demo).
 
 ## Cast files
 
@@ -10,8 +10,6 @@ Ten asciinema cast files — two per demo: the game session and the hardware vis
 | `stage1-hw.cast` | Chip idle — Tensix and RISC-V at rest |
 | `stage2.cast` | Zork game file uploaded to QB2 DRAM, Python interpreter on host |
 | `stage2-hw.cast` | DRAM traffic — 86 KB game file lives on-chip |
-| `stage3.cast` | Z-machine interpreter running on Blackhole RISC-V cores |
-| `stage3-hw.cast` | RISC-V cores lit, firmware watchdog wall explained |
 | `hybrid.cast` | LLM remix layer — Llama-3.3-70B rewrites every response |
 | `hybrid-hw.cast` | Tensix cores hot — LLM inference load in arcade mode |
 | `ai.cast` | AI auto-play — experimental persona, 30 turns, full TUI |
@@ -23,31 +21,18 @@ They tell the hardware story and double as wall-clock timers.
 ## Recording all demos
 
 ```bash
-./demos/record-all.sh              # all five demos in order
+./demos/record-all.sh              # all four demos in order (server auto-starts between stage2 and hybrid)
 ./demos/record-all.sh stage1       # re-record just Stage 1
-./demos/record-all.sh hybrid ai    # the two LLM demos
+./demos/record-all.sh hybrid ai    # re-record the two LLM demos (server must already be running)
 ```
 
-### LLM demo prerequisites (hybrid and ai)
+### LLM demos (hybrid and ai)
 
-tt-inference-server must be running with Llama-3.3-70B-Instruct on port 8000:
+When running `./demos/record-all.sh` in sequence, the inference server starts automatically after the stage2 demo resets the hardware. Allow ~3 minutes for the model to warm up — the script polls until it's ready.
+
+To re-record only the LLM demos when the server is already running:
 
 ```bash
-# Start Llama-3.3-70B on Tensix cores
-cd ~/code/tt-inference-server
-python run.py \
-  --model meta-llama/Llama-3.3-70B-Instruct \
-  --workflow server \
-  --tt-device p300x2 \
-  --docker-server \
-  --skip-prerequisites \
-  --no-auth \
-  --service-port 8000
-
-# Verify it's ready (~3 min warmup):
-curl -s http://localhost:8000/v1/models | python3 -m json.tool
-
-# Then record:
 ./demos/record-all.sh hybrid ai
 ```
 

@@ -8,12 +8,11 @@
 # The hw cast tells the hardware story:
 #   stage1: chip mostly idle  (pure Python, no hardware used)
 #   stage2: DRAM activity     (86 KB game file lives on-chip DRAM)
-#   stage3: RISC-V cores lit  (Z-machine interpreter on Blackhole silicon)
 #   hybrid: Tensix cores hot  (Llama-3.3-70B inference rewrites each response)
 #   ai:     Tensix cores hot  (Llama-3.3-70B plays 30 turns end-to-end)
 #
 # Usage:
-#   ./demos/record-all.sh                   # all five demos in order
+#   ./demos/record-all.sh                   # all four demos in order
 #   ./demos/record-all.sh stage1            # just Stage 1
 #   ./demos/record-all.sh stage2 stage3     # Stages 2 and 3
 #   ./demos/record-all.sh hybrid ai         # the two LLM demos
@@ -22,9 +21,10 @@
 #   sudo apt install asciinema
 #   source ~/code/tt-lang/build/env/activate   (done by each demo script)
 #
-# hybrid and ai prerequisites:
-#   tt-inference-server must be running with Llama-3.3-70B-Instruct on :8000.
-#   Quick check: curl -s http://localhost:8000/v1/models
+# hybrid and ai:
+#   The inference server starts automatically after stage2 resets the hardware.
+#   To run hybrid/ai standalone (server already up):
+#     curl -s http://localhost:8000/v1/models   # verify it's ready first
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -47,7 +47,6 @@ LLM_URL="${ZORK_LLM_URL:-http://localhost:8000/v1/chat/completions}"
 DEMOS=(
     "stage1|demos/demo-stage1.sh|120|35|no"
     "stage2|demos/demo-stage2.sh|120|35|no"
-    "stage3|demos/demo-stage3.sh|120|35|no"
     "hybrid|demos/demo-hybrid.sh|120|35|yes"
     "ai|demos/demo-ai.sh|160|40|yes"
 )
@@ -55,10 +54,69 @@ DEMOS=(
 # ── Stage list ────────────────────────────────────────────────────────────────
 
 if [[ $# -eq 0 ]]; then
-    TARGETS=(stage1 stage2 stage3 hybrid ai)
+    TARGETS=(stage1 stage2 hybrid ai)
 else
     TARGETS=("$@")
 fi
+
+# ── Inference server setup ────────────────────────────────────────────────────
+
+_llm_server_started=0  # track so we only start it once per run
+
+start_inference_server() {
+    if [[ $_llm_server_started -eq 1 ]]; then
+        return 0
+    fi
+
+    echo ""
+    echo "╔══════════════════════════════════════════════════════"
+    echo "║  Setting up LLM inference server"
+    echo "╚══════════════════════════════════════════════════════"
+
+    # Reset the hardware so the device session from stage2 is fully cleared.
+    echo "  Resetting hardware (tt-smi -r)..."
+    tt-smi -r
+    echo "  Hardware reset complete. Waiting 5s for chips to settle..."
+    sleep 5
+
+    # Start the inference server in the background.
+    local log="/tmp/tt-inference-server-demo.log"
+    echo "  Starting Llama-3.3-70B inference server..."
+    echo "  Logs: ${log}"
+    (
+        cd ~/code/tt-inference-server
+        python run.py \
+            --model meta-llama/Llama-3.3-70B-Instruct \
+            --workflow server \
+            --tt-device p300x2 \
+            --docker-server \
+            --skip-prerequisites \
+            --no-auth \
+            --service-port 8000 \
+        > "$log" 2>&1
+    ) &
+
+    # Poll until the model endpoint responds (up to 5 minutes).
+    local timeout=300
+    local elapsed=0
+    local interval=15
+    echo "  Waiting for model to be ready (up to ${timeout}s)..."
+    while [[ $elapsed -lt $timeout ]]; do
+        if curl -sf --max-time 3 "${LLM_URL%/chat/completions}/models" >/dev/null 2>&1; then
+            echo "  Inference server ready! (${elapsed}s)"
+            _llm_server_started=1
+            return 0
+        fi
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+        echo "  Still waiting... (${elapsed}s elapsed)"
+    done
+
+    echo ""
+    echo "  ERROR: Inference server did not respond within ${timeout}s."
+    echo "  Check logs: ${log}"
+    exit 1
+}
 
 # ── Helper: record one demo ───────────────────────────────────────────────────
 
@@ -76,7 +134,7 @@ record_demo() {
     done
 
     if [[ -z "$entry" ]]; then
-        echo "Unknown demo: ${name}. Valid names: stage1 stage2 stage3 hybrid ai"
+        echo "Unknown demo: ${name}. Valid names: stage1 stage2 hybrid ai"
         return 1
     fi
 
@@ -96,16 +154,12 @@ record_demo() {
 
     # Pre-flight: LLM server check for hybrid and ai demos.
     if [[ "$needs_llm" == "yes" ]]; then
-        echo "  Checking LLM server at ${LLM_URL} ..."
         if ! curl -sf --max-time 5 "${LLM_URL%/chat/completions}/models" >/dev/null 2>&1; then
-            echo ""
-            echo "  ERROR: LLM server not reachable at ${LLM_URL}"
-            echo "  Start tt-inference-server with Llama-3.3-70B-Instruct, then retry:"
-            echo "    ./demos/record-all.sh ${name}"
-            echo ""
-            return 1
+            echo "  LLM server not running — starting automatically..."
+            start_inference_server
+        else
+            echo "  LLM server: already running"
         fi
-        echo "  LLM server: OK"
     fi
 
     # Start hardware recording in background.
