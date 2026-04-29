@@ -73,28 +73,12 @@ start_inference_server() {
     echo "║  Setting up LLM inference server"
     echo "╚══════════════════════════════════════════════════════"
 
-    # Reset the hardware so the device session from stage2 is fully cleared.
-    echo "  Resetting hardware (tt-smi -r)..."
-    tt-smi -r
-    echo "  Hardware reset complete. Waiting 5s for chips to settle..."
-    sleep 5
-
-    # Start the inference server in the background.
+    # Start the inference server using the known-good deployment script.
+    # ~/tt-home/70b-up.sh already handles: docker stop, tt-smi -r, sleep 5.
     local log="/tmp/tt-inference-server-demo.log"
-    echo "  Starting Llama-3.3-70B inference server..."
+    echo "  Starting Llama-3.3-70B via ~/tt-home/70b-up.sh..."
     echo "  Logs: ${log}"
-    (
-        cd ~/code/tt-inference-server
-        python run.py \
-            --model meta-llama/Llama-3.3-70B-Instruct \
-            --workflow server \
-            --tt-device p300x2 \
-            --docker-server \
-            --skip-prerequisites \
-            --no-auth \
-            --service-port 8000 \
-        > "$log" 2>&1
-    ) &
+    bash ~/tt-home/70b-up.sh > "$log" 2>&1 &
 
     # Wait for the server's distinct ready marker in the log.
     # tt-inference-server prints exactly this line when the model is warm:
