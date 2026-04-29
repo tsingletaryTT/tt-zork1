@@ -1,6 +1,6 @@
 # Demo Recordings
 
-Ten asciinema cast files — two per demo: the game session and the hardware visualization.
+Ten asciinema cast files — two per demo: the game session and the hardware visualization. Run `./demos/record-all.sh hybrid ai` to generate the hybrid and ai casts.
 
 ## Cast files
 
@@ -55,10 +55,10 @@ curl -s http://localhost:8000/v1/models | python3 -m json.tool
 
 ```bash
 # In terminal A — hardware visualization:
-COLUMNS=160 LINES=42 \
-  asciinema rec --overwrite -t "Zork — Stage 1 hardware" \
-    -c "tt-toplike -m arcade --json -q" \
-    demos/stage1-hw.cast
+asciinema rec --overwrite --cols 160 --rows 42 \
+  -t "Zork — Stage 1 hardware" \
+  -c "tt-toplike -m arcade --json -q" \
+  demos/stage1-hw.cast
 
 # In terminal B — game demo (start ~2 seconds after terminal A):
 asciinema rec --overwrite -t "Zork — Stage 1" \
@@ -66,9 +66,9 @@ asciinema rec --overwrite -t "Zork — Stage 1" \
 # Ctrl-C terminal A when the demo finishes.
 
 # For the AI demo (full TUI — wider terminal):
-COLUMNS=160 LINES=40 \
-  asciinema rec --overwrite -t "Zork — AI Player" \
-    -c "bash demos/demo-ai.sh" demos/ai.cast
+asciinema rec --overwrite --cols 160 --rows 40 \
+  -t "Zork — AI Player" \
+  -c "bash demos/demo-ai.sh" demos/ai.cast
 ```
 
 ## Playback
