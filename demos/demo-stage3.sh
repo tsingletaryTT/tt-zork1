@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # demo-stage3.sh — Stage 3: Z-machine interpreter on QB2 RISC-V cores
+# Shows what the hardware actually produces — and where it got stuck.
 # Best single model for all remix roles: meta-llama/Llama-3.3-70B-Instruct
 # Record with: asciinema rec -t "Zork on Tenstorrent — Stage 3" demos/stage3.cast
 set -e
