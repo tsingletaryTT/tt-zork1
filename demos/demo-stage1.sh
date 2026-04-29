@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# demo-stage1.sh — Stage 1: Pure Python Z-machine
+# demo-stage1.sh — Stage 1: Pure Python Z-machine (no hardware required)
+# Best single model for all remix roles: meta-llama/Llama-3.3-70B-Instruct
 # Record with: asciinema rec -t "Zork on Tenstorrent — Stage 1" demos/stage1.cast
 set -e
 cd "$(dirname "$0")/.."
@@ -7,7 +8,9 @@ source ~/code/tt-lang/build/env/activate
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════"
-echo "║  STAGE 1 — Pure Python Z-machine  (no hardware required)"
+echo "║  STAGE 1 — Pure Python Z-machine"
+echo "║  The game runs entirely on the host CPU."
+echo "║  No Tenstorrent hardware involved — yet."
 echo "╚══════════════════════════════════════════════════════════════"
 echo ""
 sleep 2

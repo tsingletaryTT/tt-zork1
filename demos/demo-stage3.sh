@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # demo-stage3.sh — Stage 3: Z-machine interpreter on QB2 RISC-V cores
-# This demo shows what the hardware actually produces — and where it got stuck.
+# Best single model for all remix roles: meta-llama/Llama-3.3-70B-Instruct
 # Record with: asciinema rec -t "Zork on Tenstorrent — Stage 3" demos/stage3.cast
 set -e
 cd "$(dirname "$0")/.."
@@ -8,7 +8,9 @@ source ~/code/tt-lang/build/env/activate
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════"
-echo "║  STAGE 3 — Z-machine runs on QB2 RISC-V cores  (TT-Lang)"
+echo "║  STAGE 3 — Z-machine interpreter on QB2 RISC-V cores"
+echo "║  The game runs on the RISC-V management cores inside"
+echo "║  the Blackhole chip — not the host CPU."
 echo "╚══════════════════════════════════════════════════════════════"
 echo ""
 sleep 2
