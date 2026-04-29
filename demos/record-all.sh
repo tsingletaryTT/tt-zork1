@@ -54,7 +54,11 @@ DEMOS=(
 
 # ── Stage list ────────────────────────────────────────────────────────────────
 
-TARGETS="${*:-stage1 stage2 stage3 hybrid ai}"
+if [[ $# -eq 0 ]]; then
+    TARGETS=(stage1 stage2 stage3 hybrid ai)
+else
+    TARGETS=("$@")
+fi
 
 # ── Helper: record one demo ───────────────────────────────────────────────────
 
@@ -84,11 +88,11 @@ record_demo() {
     local hw_title="Zork on Tenstorrent — ${name} hardware"
 
     echo ""
-    echo "══════════════════════════════════════════════════════"
-    echo "  Demo: ${name}"
-    echo "  Game cast:  ${main_cast}"
-    echo "  HW cast:    ${hw_cast}"
-    echo "══════════════════════════════════════════════════════"
+    echo "╔══════════════════════════════════════════════════════"
+    echo "║  Demo: ${name}"
+    echo "║  Game cast:  ${main_cast}"
+    echo "║  HW cast:    ${hw_cast}"
+    echo "╚══════════════════════════════════════════════════════"
 
     # Pre-flight: LLM server check for hybrid and ai demos.
     if [[ "$needs_llm" == "yes" ]]; then
@@ -105,8 +109,8 @@ record_demo() {
     fi
 
     # Start hardware recording in background.
-    COLUMNS=$HW_COLS LINES=$HW_ROWS \
-        asciinema rec --overwrite \
+    asciinema rec --overwrite \
+            --cols "$HW_COLS" --rows "$HW_ROWS" \
             -t "$hw_title" \
             -c "$HW_CMD" \
             "$hw_cast" \
@@ -118,8 +122,8 @@ record_demo() {
 
     # Record the demo in foreground at the demo-specific terminal size.
     echo "  Recording demo..."
-    COLUMNS=$cols LINES=$rows \
-        asciinema rec --overwrite \
+    asciinema rec --overwrite \
+            --cols "$cols" --rows "$rows" \
             -t "$main_title" \
             -c "bash ${script}" \
             "$main_cast"
@@ -145,20 +149,20 @@ echo "║  Zork on Tenstorrent — recording demos"
 echo "║  Each demo: game cast + hardware visualization cast"
 echo "╚══════════════════════════════════════════════════════"
 
-for target in $TARGETS; do
+for target in "${TARGETS[@]}"; do
     record_demo "$target"
 done
 
 echo ""
-echo "══════════════════════════════════════════════════════"
-echo "  All done. Cast files:"
-echo ""
-for name in $TARGETS; do
-    printf "  %-8s game: demos/%s.cast\n" "$name" "$name"
-    printf "  %-8s hw:   demos/%s-hw.cast\n" "$name" "$name"
+echo "╔══════════════════════════════════════════════════════"
+echo "║  All done. Cast files:"
+echo "║"
+for name in "${TARGETS[@]}"; do
+    printf "║  %-8s game: demos/%s.cast\n" "$name" "$name"
+    printf "║  %-8s hw:   demos/%s-hw.cast\n" "$name" "$name"
 done
-echo ""
-echo "  Playback:"
-echo "    asciinema play demos/ai.cast"
-echo "    asciinema play demos/hybrid.cast"
-echo "══════════════════════════════════════════════════════"
+echo "║"
+echo "║  Playback:"
+echo "║    asciinema play demos/ai.cast"
+echo "║    asciinema play demos/hybrid.cast"
+echo "╚══════════════════════════════════════════════════════"
