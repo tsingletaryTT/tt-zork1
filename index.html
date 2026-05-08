@@ -290,16 +290,90 @@
   }
   footer a { color: var(--teal); }
 
+  /* ── Top navbar ── */
+  .topnav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(15, 42, 53, 0.93);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .topnav-inner {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding-top: 0.7rem;
+    padding-bottom: 0.7rem;
+  }
+  .topnav-brand {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--teal);
+    white-space: nowrap;
+    flex-shrink: 0;
+    text-decoration: none;
+  }
+  .topnav-links {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    flex: 1;
+  }
+  .topnav-links a {
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+  .topnav-links a:hover { color: var(--teal); }
+  .topnav-github {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.9rem;
+    border-radius: 6px;
+    background: var(--teal);
+    color: var(--bg) !important;
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+  .topnav-github:hover { background: var(--teal-lt); }
+
   /* ── Responsive ── */
   @media (max-width: 600px) {
     .hero { padding: 3rem 0 2.5rem; }
     h2 { font-size: 1.5rem; }
     .arch-table { font-size: 0.85rem; }
     .arch-table th, .arch-table td { padding: 0.5rem 0.6rem; }
+    .topnav-links { display: none; }
   }
 </style>
 </head>
 <body>
+
+<!-- ── Navbar ────────────────────────────────────────────────── -->
+<nav class="topnav">
+  <div class="wrap topnav-inner">
+    <a class="topnav-brand" href="#">Zork × Tenstorrent</a>
+    <div class="topnav-links">
+      <a href="#ttlang">TT-Lang</a>
+      <a href="#stage1">Stage 1</a>
+      <a href="#stage2">Stage 2</a>
+      <a href="#stage3">Stage 3</a>
+      <a href="#remix">Remix</a>
+      <a href="#ai">AI play</a>
+      <a href="#zork2">Zork II</a>
+    </div>
+    <a class="topnav-github" href="https://github.com/tsingletaryTT/tt-zork-and-more" target="_blank" rel="noopener">
+      ★ GitHub
+    </a>
+  </div>
+</nav>
 
 <!-- ── Hero ─────────────────────────────────────────────────── -->
 <div class="wrap">
@@ -312,7 +386,7 @@
   </p>
   <div class="hero-meta">
     <span>TT-Lang / ttnn</span>
-    <span>QB2 Blackhole</span>
+    <span>Blackhole p300c</span>
     <span>Llama-3.3-70B-Instruct</span>
     <span>Python · C++ · RISC-V</span>
   </div>
@@ -322,7 +396,7 @@
 <nav class="stage-nav">
   <a href="#ttlang"><span class="num">⚙</span> TT-Lang</a>
   <a href="#stage1"><span class="num">1</span> Pure Python</a>
-  <a href="#stage2"><span class="num">2</span> QB2 DRAM</a>
+  <a href="#stage2"><span class="num">2</span> Blackhole DRAM</a>
   <a href="#stage3"><span class="num">3</span> RISC-V</a>
   <a href="#remix"><span class="num">+</span> Remix</a>
   <a href="#ai"><span class="num">AI</span> Auto-play</a>
@@ -368,11 +442,11 @@
       <tr>
         <td>2 — device</td>
         <td>Python interpreter on the host CPU</td>
-        <td>86 KB game binary in QB2 DRAM</td>
+        <td>86 KB game binary in Blackhole DRAM</td>
       </tr>
       <tr>
         <td>3 — risc-v</td>
-        <td>C++ Z-machine kernel on QB2 RISC-V cores</td>
+        <td>C++ Z-machine kernel on Blackhole RISC-V cores</td>
         <td>Game binary in DRAM + interpreter in L1</td>
       </tr>
       <tr>
@@ -387,6 +461,32 @@
     The project lives at <span class="filepath">ttlang/zmachine_v3.py</span> (the Python interpreter),
     <span class="filepath">engines/</span> (the three stage backends), and
     <span class="filepath">kernels/zork_interpreter_l1.cpp</span> (the RISC-V kernel).
+  </p>
+
+  <h3>Before TT-Lang — the C++ era</h3>
+  <p>
+    The project did not start with Python. The first version was a full C integration of
+    <strong>Frotz</strong> (the reference Infocom interpreter) alongside custom TT-Metal
+    C++ kernels written directly against the RISC-V management core API — no Python layer,
+    no pyenv, just cmake and raw <code>EnqueueMeshWorkload</code> calls.
+  </p>
+  <p>
+    That path produced real results: a custom Z-machine V3 interpreter
+    (<span class="filepath">kernels/zork_interpreter.cpp</span>, ~1,000 lines) that decoded
+    all 199 Zork objects on chip, resolved abbreviations correctly, and eventually printed the
+    actual Zork opening text — <em>"ZORK I: The Great Underground Empire"</em> — from opcodes
+    executing on a Blackhole RISC-V core. Getting there required fighting DRAM page fragmentation,
+    a runtime-args hang in <code>get_arg_val&lt;&gt;</code>, and a firmware execution budget that
+    limited each kernel run to roughly 100 instructions before the watchdog fired.
+  </p>
+  <p>
+    TT-Lang became the active path because it solved the interface problem cleanly. The
+    <code>~/code/tt-lang/build/env/activate</code> pyenv provides <code>ttnn</code> device
+    access, a green-thread simulator for kernel validation, and a Python-first authoring
+    model that made the DRAM ↔ L1 data paths much easier to iterate on. The C++ kernel work
+    validated the hardware story; TT-Lang made it reproducible. The
+    <span class="filepath">src/</span> and <span class="filepath">kernels/</span> trees from
+    that era are preserved in git history.
   </p>
 </section>
 
@@ -421,7 +521,7 @@
 
   <pre><code>@ttl.operation(grid=(1, 1))
 def zmachine_kernel(
-    game:       Tensor,   # 87 KB game binary — lives in QB2 DRAM
+    game:       Tensor,   # 87 KB game binary — lives in Blackhole DRAM
     state:      Tensor,   # interpreter state checkpoint — DRAM
     input_buf:  Tensor,   # player command string — DRAM
     output:     Tensor,   # output text written back to DRAM
@@ -544,10 +644,10 @@ python ttlang/zork_kernel.py game/zork1.z3
 <!-- ── Stage 2 ──────────────────────────────────────────────── -->
 <section class="section" id="stage2">
   <div class="stage-badge pink"><span class="dot"></span> Stage 2 · device</div>
-  <h2>QB2 DRAM — The Game File Goes On-Chip</h2>
+  <h2>Blackhole DRAM — The Game File Goes On-Chip</h2>
 
   <p>
-    Stage 2 moves the 86,838-byte Zork game binary onto Tenstorrent QB2 Blackhole on-chip DRAM
+    Stage 2 moves the 86,838-byte Zork game binary onto a Tenstorrent Blackhole chip's on-chip DRAM
     using <code>ttnn</code>. The Python Z-machine interpreter on the host reads game bytecode
     directly from that DRAM buffer. The interpreter logic stays on the host CPU; the game
     <em>data</em> lives on silicon.
@@ -584,7 +684,7 @@ game_tensor = ttnn.from_torch(
   </p>
 
   <div class="player-wrap">
-    <div class="player-label">demos/stage2.cast — game binary on QB2 DRAM, Python interpreter on host</div>
+    <div class="player-label">demos/stage2.cast — game binary on Blackhole DRAM, Python interpreter on host</div>
     <div id="player-stage2"></div>
   </div>
 
@@ -603,7 +703,7 @@ game_tensor = ttnn.from_torch(
 
   <p>
     Stage 3 compiles <span class="filepath">kernels/zork_interpreter_l1.cpp</span> — a
-    complete Z-machine V3 interpreter in C++ — and dispatches it to the QB2 Blackhole
+    complete Z-machine V3 interpreter in C++ — and dispatches it to the Blackhole chip's
     RISC-V management cores via <code>ttnn.generic_op</code>. The kernel loads game bytecode
     from DRAM via the on-chip NoC, executes instructions in L1 cache, and writes output
     back to DRAM.
@@ -665,7 +765,7 @@ ZORK is a registered trademark of Infocom, Inc.
   </p>
 
   <div class="player-wrap">
-    <div class="player-label">demos/stage3.cast — Z-machine interpreter running on QB2 RISC-V cores</div>
+    <div class="player-label">demos/stage3.cast — Z-machine interpreter running on Blackhole RISC-V cores</div>
     <div id="player-stage3"></div>
   </div>
 
@@ -673,18 +773,20 @@ ZORK is a registered trademark of Infocom, Inc.
 
   <div class="callout stuck">
     <p>
-      <strong>Firmware watchdog:</strong> The QB2 firmware limits each <code>generic_op</code>
-      kernel invocation to approximately 10 Z-machine instructions before the watchdog fires.
-      A third invocation within a single device session hangs reliably — diagnosed in
-      <span class="filepath">ttlang/diag_batch3.py</span>. The workaround is opening and
-      closing the device for each batch (one Python process per 10 instructions), which works
-      but makes a full game turn take minutes.
+      <strong>Chip firmware budget:</strong> The Blackhole chip firmware limits each
+      <code>generic_op</code> kernel invocation to approximately 10 Z-machine instructions
+      before the execution watchdog fires. A third invocation within a single device session
+      hangs reliably — diagnosed in <span class="filepath">ttlang/diag_batch3.py</span>.
+      The workaround is opening and closing the device for each batch (one Python process
+      per 10 instructions), which works but makes a full game turn take minutes.
     </p>
     <p>
       The Zork opening sequence needs ~400 instructions. At 10 per batch with per-batch
       device open/close overhead, that's 40+ round-trips.
-      <strong>This is a firmware constraint, not an architecture limitation.</strong>
-      Longer kernel execution budgets would make the RISC-V path fully interactive.
+      <strong>This is a firmware execution budget, not an architecture limitation.</strong>
+      The Blackhole cards are designed for short, massively parallel kernels — not
+      long sequential interpreter loops. Longer execution budgets would make the RISC-V
+      path fully interactive.
     </p>
   </div>
 
@@ -895,22 +997,23 @@ python play.py \
     This affected both the Python (Stage 2) and C++ (Stage 3) paths.
   </p>
 
-  <h3>The firmware watchdog is a real constraint</h3>
+  <h3>The chip firmware budget is a real constraint</h3>
   <p>
-    The QB2 firmware limits RISC-V kernel execution time. Long-running loops — anything
-    beyond about 10–15 Z-machine instructions — trigger the watchdog. A third
-    <code>generic_op</code> call within the same device session hangs indefinitely. These
-    are not bugs in the kernel; they are firmware design constraints intended to prevent
-    runaway kernels from blocking the device. Working with the hardware means respecting
-    these limits.
+    The Blackhole chip firmware limits RISC-V kernel execution time. Long-running loops —
+    anything beyond about 10–15 Z-machine instructions — trigger the execution watchdog.
+    A third <code>generic_op</code> call within the same device session hangs indefinitely.
+    These are not bugs in the kernel; they are firmware design constraints intended to prevent
+    runaway kernels from blocking the chip. The Blackhole cards are optimised for short,
+    massively parallel workloads. A sequential interpreter loop that runs for thousands of
+    cycles is exactly the wrong shape for this hardware.
   </p>
 
   <h3>The right pivot</h3>
   <p>
-    Rather than fight the watchdog to make Stage 3 interactive, we moved Tensix into a
-    different role: running the LLM. Tensix is exactly the right hardware for transformer
-    inference, and Llama-3.3-70B on a p300x2 is fast enough for a text adventure. The
-    Z-machine runs on the host; the interesting hardware work happens in the remix layer
+    Rather than fight the firmware budget to make Stage 3 interactive, we moved Tensix into
+    a different role: running the LLM. Tensix is exactly the right hardware for transformer
+    inference, and Llama-3.3-70B on two p300c cards runs fast enough for a text adventure.
+    The Z-machine runs on the host; the interesting hardware work happens in the remix layer
     on Tensix. That division of labour made the demos actually playable.
   </p>
 
@@ -1001,7 +1104,7 @@ bash demos/record-all.sh zork2-stage2 zork2-ai
       poster: 'npt:0:04', preload: true });
 
   AsciinemaPlayer.create('demos/stage2.cast', document.getElementById('player-stage2'),
-    { ...opts, cols: 120, rows: 35, title: 'Stage 2 — QB2 DRAM',
+    { ...opts, cols: 120, rows: 35, title: 'Stage 2 — Blackhole DRAM',
       poster: 'npt:0:08', preload: true });
 
   AsciinemaPlayer.create('demos/stage3.cast', document.getElementById('player-stage3'),
