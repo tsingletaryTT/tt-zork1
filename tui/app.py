@@ -393,6 +393,9 @@ class ZMachineTuiApp(App[None]):
 
             # --- Sentinel: shutdown ---
             if cmd is None:
+                # Close the Textual app from this worker thread so the process
+                # exits cleanly (required for asciinema to save the cast file).
+                self.call_from_thread(self.exit)
                 break
 
             # --- Sentinel: stop auto-play ---
