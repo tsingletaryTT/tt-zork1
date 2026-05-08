@@ -19,8 +19,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from ttlang.zmachine_v3 import ZMachineV3
 
 
-INSTRUCTIONS_PER_TURN = 5000   # generous budget per turn; Zork1 typical command ~200-500 steps
-INSTRUCTIONS_STARTUP  = 10000  # Zork1 init phase runs ~2000-5000 instructions before first READ
+INSTRUCTIONS_BATCH = 2000  # instructions per interpret() call; stopped early by waiting_for_input
+
+
+def _run_until_input(zm: ZMachineV3) -> None:
+    """Run the interpreter until it pauses waiting for input (or the game ends).
+
+    Calls interpret() at least once — when input_command is set, the first call
+    clears waiting_for_input and resumes execution. Then loops until the next READ.
+    """
+    zm.interpret(INSTRUCTIONS_BATCH)
+    while zm.running and not zm.waiting_for_input:
+        zm.interpret(INSTRUCTIONS_BATCH)
 
 
 def run_interactive(game_path: str) -> None:
@@ -32,7 +42,7 @@ def run_interactive(game_path: str) -> None:
     print(f"[Loaded {len(game_bytes)} bytes from {game_path}]\n")
 
     # Run startup sequence until first prompt appears
-    zm.interpret(INSTRUCTIONS_STARTUP)
+    _run_until_input(zm)
     output = zm.flush_output()
     if output:
         print(output, end="", flush=True)
@@ -50,7 +60,7 @@ def run_interactive(game_path: str) -> None:
             break
 
         zm.input_command = command
-        zm.interpret(INSTRUCTIONS_PER_TURN)
+        _run_until_input(zm)
         output = zm.flush_output()
         if output:
             print(output, end="", flush=True)

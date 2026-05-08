@@ -63,7 +63,45 @@ class ZMachineV3:
             self._routine_offset = ((m[0x28] << 8) | m[0x29]) * 8
             self._string_offset  = ((m[0x2A] << 8) | m[0x2B]) * 8
 
+        # Object table layout differs by version (Z-machine spec §12).
+        # V3: 31 default property words (62 bytes), 9-byte entries,
+        #     single-byte parent/sibling/child, 31 attributes, 31 max props.
+        # V5: 63 default property words (126 bytes), 14-byte entries,
+        #     word-sized parent/sibling/child, 48 attributes, 63 max props.
+        if self.version <= 3:
+            self._obj_defaults_size = 62   # 31 × 2
+            self._obj_entry_size    = 9
+            self._obj_max_attrs     = 31
+            self._obj_max_props     = 31
+            self._obj_prop_ptr_off  = 7    # offset within entry to prop-table pointer word
+        else:
+            self._obj_defaults_size = 126  # 63 × 2
+            self._obj_entry_size    = 14
+            self._obj_max_attrs     = 47
+            self._obj_max_props     = 63
+            self._obj_prop_ptr_off  = 12
+
     def _init_state(self) -> None:
+        # Set interpreter capability headers (Z-machine spec §11.1).
+        # The interpreter must fill these before the game starts executing.
+        # We write directly to self.memory (dynamic memory), not _original_bytes.
+        if self.version >= 4:
+            self.memory[0x20] = 1       # interpreter number: 1 = DEC-20 (neutral)
+            self.memory[0x21] = ord('1') # interpreter version: '1'
+            self.memory[0x22] = 255     # screen height: 255 = infinite (no pagination)
+            self.memory[0x23] = 80      # screen width: 80 columns (standard)
+            # Standard revision: 1.2 (spec §11.1.7)
+            self.memory[0x32] = 1
+            self.memory[0x33] = 2
+        if self.version >= 5:
+            # Flags 1 (byte 0x01) — set capabilities we support
+            # Bit 2 = bold, bit 3 = italic, bit 4 = fixed-space
+            self.memory[0x01] |= (1 << 4)  # fixed-space font available
+            self.memory[0x24] = 0          # screen width in px (unknown → 0)
+            self.memory[0x25] = 0
+            self.memory[0x26] = 1          # font width in px (1 = character-cell)
+            self.memory[0x27] = 1          # font height in px
+
         # Program counter as integer index into self.memory
         self.pc: int = self.initial_pc
 
@@ -75,6 +113,9 @@ class ZMachineV3:
 
         # Output buffer
         self.output: list[str] = []
+        # Current output window (0 = lower/main, 1 = upper/status bar).
+        # SET_WINDOW switches this; we suppress output when not in window 0.
+        self.current_window: int = 0
 
         # Input buffer (set from outside before calling interpret())
         self.input_command: str = ""
@@ -335,14 +376,8 @@ class ZMachineV3:
     def get_object_name(self, obj_num: int) -> str:
         """Return the text name of Z-machine object obj_num (1-indexed).
 
-        V3 object table layout (Z-machine spec §12):
-          - 31 × 2-byte default property values (62 bytes)
-          - Then one 9-byte entry per object:
-              bytes 0-3: attribute flags (32 bits)
-              byte  4:   parent object number
-              byte  5:   sibling object number
-              byte  6:   child object number
-              bytes 7-8: property table address (big-endian word)
+        The object entry layout and sizes depend on the Z-machine version
+        (see _parse_header for _obj_defaults_size, _obj_entry_size, _obj_prop_ptr_off).
 
         The property table for each object starts with:
           byte 0:   length of object name in Z-string words
@@ -350,15 +385,11 @@ class ZMachineV3:
 
         Returns empty string if obj_num is out of range or has no name.
         """
-        if obj_num < 1 or obj_num > 255:
+        if obj_num < 1 or obj_num > (255 if self.version <= 3 else 65535):
             return ""
 
-        # Locate the object's 9-byte entry in the object table
-        default_props_size = 31 * 2  # 31 words of default property values
-        obj_base = self.object_table + default_props_size + (obj_num - 1) * 9
-
-        # Read the property table pointer from bytes 7-8 of the entry
-        prop_ptr = self.read_word(obj_base + 7)
+        obj_base = self._obj_addr(obj_num)
+        prop_ptr = self.read_word(obj_base + self._obj_prop_ptr_off)
         if prop_ptr == 0:
             return ""
 
@@ -411,6 +442,25 @@ class ZMachineV3:
             if t == 3:  # omitted — stop here
                 break
             operands.append(self._load_operand(t))
+        return operands
+
+    def _load_var_operands_double(self) -> list[int]:
+        """Load up to 8 operands using two consecutive type bytes (CALL_VS2 / CALL_VN2).
+
+        Per Z-machine spec §4.3.3: for double-VAR instructions, both type bytes are
+        read consecutively BEFORE any operand data. types1 encodes operand types 0-3,
+        types2 encodes types 4-7. All operand data follows after both type bytes.
+        Stops immediately on encountering type 3 (omitted) in either byte.
+        """
+        types1 = self.code_byte()
+        types2 = self.code_byte()
+        operands: list[int] = []
+        for types_byte in (types1, types2):
+            for shift in (6, 4, 2, 0):
+                t = (types_byte >> shift) & 3
+                if t == 3:  # omitted — stop all remaining loading
+                    return operands
+                operands.append(self._load_operand(t))
         return operands
 
     def _branch(self, condition: bool) -> None:
@@ -467,12 +517,14 @@ class ZMachineV3:
     # ------------------------------------------------------------------
 
     def _print_char(self, c: str) -> None:
-        """Append a single character to the output buffer."""
-        self.output.append(c)
+        """Append a single character to the output buffer (suppressed in non-main windows)."""
+        if self.current_window == 0:
+            self.output.append(c)
 
     def _print_str(self, s: str) -> None:
-        """Append a string to the output buffer."""
-        self.output.append(s)
+        """Append a string to the output buffer (suppressed in non-main windows)."""
+        if self.current_window == 0:
+            self.output.append(s)
 
     def flush_output(self) -> str:
         """Return accumulated output as a single string and clear the buffer.
@@ -508,18 +560,23 @@ class ZMachineV3:
         variable number where the return value should be stored.
         """
         if packed_addr == 0:
-            self.set_var(store_var, 0)
+            if store_var != -1:
+                self.set_var(store_var, 0)
             return
 
         body_addr = packed_addr * self._packed_mult + self._routine_offset
         num_locals = self.memory[body_addr]
-        body_addr += 1  # skip num-locals byte; now points to first default-local word
+        body_addr += 1  # skip num-locals byte
 
-        # Read default local values (one word each)
-        locals_: list[int] = []
-        for i in range(num_locals):
-            locals_.append(self.read_word(body_addr))
-            body_addr += 2
+        # V1-4: routine header contains default values for each local (one word each).
+        # V5+: no default values in header; all locals initialize to 0.
+        if self.version <= 4:
+            locals_: list[int] = []
+            for i in range(num_locals):
+                locals_.append(self.read_word(body_addr))
+                body_addr += 2
+        else:
+            locals_: list[int] = [0] * num_locals  # type: ignore[assignment]
 
         # Override with supplied arguments
         for i, arg in enumerate(args):
@@ -546,7 +603,8 @@ class ZMachineV3:
             return
         frame = self.frames.pop()
         self.pc = frame["ret_pc"]
-        self.set_var(frame["store_var"], value)
+        if frame["store_var"] != -1:
+            self.set_var(frame["store_var"], value)
 
     # ------------------------------------------------------------------
     # interpret() — main execution loop
@@ -618,7 +676,7 @@ class ZMachineV3:
                     operands.append(self.code_byte())
                 else:
                     v = self.code_byte()
-                    operands.append(self.read_variable(v))
+                    operands.append(self.get_var(v))
             # EXT 0x09 SAVE_UNDO / EXT 0x0A RESTORE_UNDO: store −1 (unsupported).
             if ext_op in (0x09, 0x0A):
                 store_var = self.code_byte()
@@ -656,11 +714,11 @@ class ZMachineV3:
             #   indices 32-63 → VAR-specific opcodes (used for 0xE0-0xFF)
             # We mirror that split here.
             opcode = opcode_byte & 0x1F
-            # CALL_VS2 (0x0C) and CALL_VN2 (0x1A) use TWO operand-type bytes
-            # to encode up to 8 arguments; read the second types byte here.
+            # CALL_VS2 (0x0C) and CALL_VN2 (0x1A) use TWO operand-type bytes.
+            # Per spec §4.3.3, both type bytes come BEFORE all operand data.
+            # _load_var_operands_double reads both type bytes then all operands.
             if (opcode_byte & 0x20) and opcode in (0x0C, 0x1A):
-                operands = self._load_var_operands()   # first 4 args
-                operands += self._load_var_operands()  # args 5-8
+                operands = self._load_var_operands_double()
             else:
                 operands = self._load_var_operands()
             if opcode_byte & 0x20:
@@ -818,6 +876,29 @@ class ZMachineV3:
                 sb = b if b < 0x8000 else b - 0x10000
                 self._store_result((sa - int(sa / sb) * sb) & 0xFFFF)
 
+        elif opcode == 0x19: # CALL_2S (V4+) — call routine a with arg b, store result
+            store_var = self.code_byte()
+            self._do_call(a, [b], store_var)
+
+        elif opcode == 0x1A: # CALL_2N (V5+) — call routine a with arg b, discard result
+            self._do_call(a, [b], store_var=-1)
+
+        elif opcode == 0x1B: # SET_COLOUR (V5+) — no-op in line-based mode
+            pass
+
+        elif opcode == 0x1C: # THROW (V5+) — unwind stack to frame n
+            # Pop frames until we reach frame number b, then return value a.
+            target_depth = b if b < 0x8000 else b - 0x10000
+            while len(self.frames) > target_depth:
+                self.frames.pop()
+            if self.frames:
+                frame = self.frames.pop()
+                self.pc = frame["ret_pc"]
+                if frame["store_var"] != -1:
+                    self.set_var(frame["store_var"], a)
+            else:
+                self.running = False
+
         # Unknown 2OP opcodes are silently skipped
 
     def _dispatch_1op(self, opcode: int, a: int) -> None:
@@ -850,12 +931,23 @@ class ZMachineV3:
             self._store_result(self._get_obj_parent(a))
 
         elif opcode == 0x04: # GET_PROP_LEN — get length of property at data address a
-            # Operand a is the address of property DATA; size byte is one before it
+            # Operand a is the address of property DATA (first byte after header).
+            # V3: 1-byte header; plen = (bits 7-5) + 1.
+            # V5: the byte at a-1 is the last header byte; if its bit 7 is set it's
+            #     the second byte of a 2-byte header and plen = bits 5-0 (0 → 64).
+            #     Otherwise it's a 1-byte header and plen = (bit 6 ? 2 : 1).
             if a == 0:
                 self._store_result(0)
             else:
-                size_byte = self.memory[a - 1]
-                prop_len = (size_byte >> 5) + 1
+                sb = self.memory[a - 1]
+                if self.version <= 3:
+                    prop_len = (sb >> 5) + 1
+                elif sb & 0x80:
+                    prop_len = sb & 0x3F
+                    if prop_len == 0:
+                        prop_len = 64
+                else:
+                    prop_len = ((sb >> 6) & 1) + 1
                 self._store_result(prop_len)
 
         elif opcode == 0x05: # INC — increment variable a
@@ -894,8 +986,13 @@ class ZMachineV3:
         elif opcode == 0x0E: # LOAD — copy variable a's value to result variable
             self._store_result(self.get_var(a))
 
-        elif opcode == 0x0F: # NOT — bitwise NOT (V3; replaced by EXT in V5+)
-            self._store_result((~a) & 0xFFFF)
+        elif opcode == 0x0F:
+            # V3/V4: NOT — bitwise NOT, store result.
+            # V5+: CALL_1N — call routine at packed addr a, discard result (no store byte).
+            if self.version >= 5:
+                self._do_call(a, [], store_var=-1)
+            else:
+                self._store_result((~a) & 0xFFFF)
 
     def _dispatch_0op(self, opcode: int) -> None:
         """Dispatch a 0OP instruction (Z-machine spec §14, 0OP opcodes).
@@ -1033,11 +1130,17 @@ class ZMachineV3:
         elif opcode == 0x03: # PUT_PROP — write value to object property
             self._put_prop(arg(0), arg(1), arg(2))
 
-        elif opcode == 0x04: # READ (SREAD) — read player input
+        elif opcode == 0x04: # READ (SREAD/AREAD) — read player input
             # _do_read handles waiting_for_input itself: if input_command is empty
             # it sets the flag and returns; caller sets input_command and calls
             # interpret() again to resume. Do NOT set the flag here.
             self._do_read(arg(0), arg(1))
+            # V5+ AREAD is a store instruction: after operands, a store byte encodes
+            # the variable to receive the terminating character (13 = Enter key).
+            # Only consume the store byte when input was actually processed
+            # (waiting_for_input=False means _do_read did not back up the PC).
+            if self.version >= 5 and not self.waiting_for_input:
+                self._store_result(13)  # 13 = ZSCII newline = Enter key
 
         elif opcode == 0x05: # PRINT_CHAR — print single ZSCII character
             ch = arg(0)
@@ -1074,11 +1177,13 @@ class ZMachineV3:
             val = self.stack.pop() if self.stack else 0
             self.set_var(arg(0), val)
 
-        elif opcode == 0x0A: # SPLIT_WINDOW — no-op in line-based simulator
+        elif opcode == 0x0A: # SPLIT_WINDOW — no-op (single-stream simulator)
             pass
 
-        elif opcode == 0x0B: # SET_WINDOW — no-op in line-based simulator
-            pass
+        elif opcode == 0x0B: # SET_WINDOW — track current window to suppress status-bar output
+            # Window 0 = lower/main window, window 1 = upper/status bar.
+            # Output printed while in window 1 is status-bar content — suppress it.
+            self.current_window = arg(0) & 0xFFFF
 
         elif opcode == 0x0C: # CALL_VS2 (V5+) — CALL_VS with up to 8 args (two type bytes)
             # The second operand-types byte was already consumed by _load_var_operands
@@ -1143,7 +1248,7 @@ class ZMachineV3:
                     break
             store_var = self.code_byte()
             self.set_var(store_var, found_addr)
-            self._do_branch(found_addr != 0)
+            self._branch(found_addr != 0)
 
         elif opcode == 0x18: # NOT (V5+, moved from 1OP) — bitwise NOT, store result
             store_var = self.code_byte()
@@ -1154,14 +1259,14 @@ class ZMachineV3:
                 return
             packed_addr = operands[0]
             call_args = operands[1:]
-            self._do_call(packed_addr, call_args, store_var=0xFF)  # 0xFF = discard
+            self._do_call(packed_addr, call_args, store_var=-1)
 
         elif opcode == 0x1A: # CALL_VN2 (V5+) — CALL_VN with up to 8 args
             if not operands:
                 return
             packed_addr = operands[0]
             call_args = operands[1:]
-            self._do_call(packed_addr, call_args, store_var=0xFF)
+            self._do_call(packed_addr, call_args, store_var=-1)
 
         elif opcode == 0x1B: # TOKENISE (V5+) — tokenise text buffer
             pass  # Leave the parse buffer as-is; game will still read input
@@ -1186,50 +1291,68 @@ class ZMachineV3:
 
         elif opcode == 0x1F: # CHECK_ARG_COUNT (V5+) — branch if arg n was supplied
             # We don't track arg count precisely; always branch true for safety.
-            self._do_branch(True)
+            self._branch(True)
 
         # Unknown VAR opcodes are silently skipped (safe for forward-compat)
 
     # ------------------------------------------------------------------
-    # Object operations — V3 object table layout:
-    #   Base: self.object_table (from header)
-    #   First 31*2 bytes: default property values (31 words)
-    #   Then 9 bytes per object entry (1-indexed up to 255):
-    #     bytes 0-3: 32-bit attribute flags (bit 0 = attribute 31, etc.)
-    #     byte  4:   parent object number
-    #     byte  5:   sibling object number
-    #     byte  6:   child object number
-    #     bytes 7-8: property table address (big-endian word)
+    # Object operations — layout is version-specific (see _parse_header):
+    #   V3: 62-byte defaults, 9-byte entries, 1-byte parent/sib/child, 31 attrs
+    #   V5: 126-byte defaults, 14-byte entries, 2-byte parent/sib/child, 48 attrs
     # ------------------------------------------------------------------
 
     def _obj_addr(self, obj_num: int) -> int:
-        """Byte address of the 9-byte object entry for obj_num (1-indexed)."""
-        base = self.object_table + 31 * 2  # skip default property words
-        return base + (obj_num - 1) * 9
+        """Byte address of the object entry for obj_num (1-indexed)."""
+        base = self.object_table + self._obj_defaults_size
+        return base + (obj_num - 1) * self._obj_entry_size
 
     def _get_obj_parent(self, obj_num: int) -> int:
         """Return the parent object number for obj_num, or 0 if none/invalid."""
         if obj_num < 1: return 0
-        return self.memory[self._obj_addr(obj_num) + 4]
+        addr = self._obj_addr(obj_num)
+        return self.memory[addr + 4] if self.version <= 3 else self.read_word(addr + 6)
 
     def _get_obj_sibling(self, obj_num: int) -> int:
         """Return the sibling object number for obj_num, or 0 if none/invalid."""
         if obj_num < 1: return 0
-        return self.memory[self._obj_addr(obj_num) + 5]
+        addr = self._obj_addr(obj_num)
+        return self.memory[addr + 5] if self.version <= 3 else self.read_word(addr + 8)
 
     def _get_obj_child(self, obj_num: int) -> int:
         """Return the first child object number for obj_num, or 0 if none/invalid."""
         if obj_num < 1: return 0
-        return self.memory[self._obj_addr(obj_num) + 6]
+        addr = self._obj_addr(obj_num)
+        return self.memory[addr + 6] if self.version <= 3 else self.read_word(addr + 10)
+
+    def _set_obj_parent(self, obj_num: int, val: int) -> None:
+        addr = self._obj_addr(obj_num)
+        if self.version <= 3:
+            self.memory[addr + 4] = val & 0xFF
+        else:
+            self.write_word(addr + 6, val)
+
+    def _set_obj_sibling(self, obj_num: int, val: int) -> None:
+        addr = self._obj_addr(obj_num)
+        if self.version <= 3:
+            self.memory[addr + 5] = val & 0xFF
+        else:
+            self.write_word(addr + 8, val)
+
+    def _set_obj_child(self, obj_num: int, val: int) -> None:
+        addr = self._obj_addr(obj_num)
+        if self.version <= 3:
+            self.memory[addr + 6] = val & 0xFF
+        else:
+            self.write_word(addr + 10, val)
 
     def _test_attr(self, obj_num: int, attr: int) -> bool:
         """Return True if object obj_num has attribute attr set.
 
-        Attributes 0-31 are stored as a 32-bit flags field at the start of
-        each object entry (bytes 0-3). Attribute 0 is the most significant
-        bit of byte 0; attribute 31 is the least significant bit of byte 3.
+        Attributes are stored MSB-first in the entry's leading bytes:
+        V3: 4 bytes (attrs 0-31), V5: 6 bytes (attrs 0-47).
+        Attribute 0 is bit 7 of byte 0; attribute N is at byte N//8 bit 7-(N%8).
         """
-        if obj_num < 1 or attr > 31: return False
+        if obj_num < 1 or attr > self._obj_max_attrs: return False
         addr = self._obj_addr(obj_num)
         byte_idx = attr // 8
         bit = 7 - (attr % 8)
@@ -1237,7 +1360,7 @@ class ZMachineV3:
 
     def _set_attr(self, obj_num: int, attr: int) -> None:
         """Set attribute attr on object obj_num."""
-        if obj_num < 1 or attr > 31: return
+        if obj_num < 1 or attr > self._obj_max_attrs: return
         addr = self._obj_addr(obj_num)
         byte_idx = attr // 8
         bit = 7 - (attr % 8)
@@ -1245,102 +1368,111 @@ class ZMachineV3:
 
     def _clear_attr(self, obj_num: int, attr: int) -> None:
         """Clear attribute attr on object obj_num."""
-        if obj_num < 1 or attr > 31: return
+        if obj_num < 1 or attr > self._obj_max_attrs: return
         addr = self._obj_addr(obj_num)
         byte_idx = attr // 8
         bit = 7 - (attr % 8)
         self.memory[addr + byte_idx] &= ~(1 << bit)
 
+    def _prop_header(self, addr: int) -> tuple[int, int, int]:
+        """Parse a property entry header at addr.
+
+        Returns (prop_num, data_len, header_bytes).
+        Returns (0, 0, 0) when size byte is 0 (end-of-list sentinel).
+
+        V3: always 1-byte header.
+          pnum = bits 4-0; plen = (bits 7-5) + 1.
+        V5: 1-byte header if bit 7 = 0; 2-byte header if bit 7 = 1.
+          1-byte: pnum = bits 5-0; plen = (bit 6 ? 2 : 1).
+          2-byte: pnum = byte0 bits 5-0; plen = byte1 bits 5-0 (0 → 64).
+        """
+        sb = self.memory[addr]
+        if sb == 0:
+            return 0, 0, 0
+        if self.version <= 3:
+            return sb & 0x1F, (sb >> 5) + 1, 1
+        # V5+
+        pnum = sb & 0x3F
+        if sb & 0x80:
+            sb2 = self.memory[addr + 1]
+            plen = sb2 & 0x3F
+            if plen == 0:
+                plen = 64
+            return pnum, plen, 2
+        else:
+            return pnum, ((sb >> 6) & 1) + 1, 1
+
     def _get_prop(self, obj_num: int, prop_num: int) -> int:
         """Return value of property prop_num for object obj_num.
 
-        Properties are stored in a linked list in the object's property table.
-        Each entry has a size byte (high 3 bits = length-1, low 5 bits = prop number),
-        followed by the property data bytes.
-
-        If the property is not present, returns the default value from the
-        object table's default properties area (first 31 words of the object table).
+        If the property is absent, returns the default value from the
+        object table's default property words.
         """
         if obj_num < 1: return 0
         addr = self._obj_addr(obj_num)
-        prop_addr = self.read_word(addr + 7)
-        # Skip the object name Z-string (byte 0 = length in words, then that many words)
+        prop_addr = self.read_word(addr + self._obj_prop_ptr_off)
+        # Skip the object name Z-string (byte 0 = length in words)
         name_len = self.memory[prop_addr] * 2
         prop_addr += 1 + name_len
         while True:
-            size_byte = self.memory[prop_addr]
-            if size_byte == 0:
+            pnum, plen, hdr = self._prop_header(prop_addr)
+            if hdr == 0:
                 # Not found: return default property value
-                if 1 <= prop_num <= 31:
+                if 1 <= prop_num <= self._obj_max_props:
                     return self.read_word(self.object_table + (prop_num - 1) * 2)
                 return 0
-            pnum = size_byte & 0x1F
-            plen = (size_byte >> 5) + 1
             if pnum == prop_num:
                 if plen == 1:
-                    return self.memory[prop_addr + 1]
+                    return self.memory[prop_addr + hdr]
                 else:
-                    return self.read_word(prop_addr + 1)  # 2-byte or illegal multi-byte: read word
-            prop_addr += 1 + plen
+                    return self.read_word(prop_addr + hdr)
+            prop_addr += hdr + plen
 
     def _get_prop_addr(self, obj_num: int, prop_num: int) -> int:
         """Return byte address of property prop_num's data for obj_num, or 0.
 
-        Returns the address of the first data byte (one past the size byte).
-        This address is what GET_PROP_LEN expects as its operand.
-        Returns 0 if the property is not present (per V3 spec).
+        Returns the address of the first data byte (after the header bytes).
+        Returns 0 if the property is not present.
         """
         if obj_num < 1: return 0
         addr = self._obj_addr(obj_num)
-        prop_addr = self.read_word(addr + 7)
-        # Skip object name
+        prop_addr = self.read_word(addr + self._obj_prop_ptr_off)
         name_len = self.memory[prop_addr] * 2
         prop_addr += 1 + name_len
         while True:
-            size_byte = self.memory[prop_addr]
-            if size_byte == 0:
-                return 0  # property not present
-            pnum = size_byte & 0x1F
-            plen = (size_byte >> 5) + 1
+            pnum, plen, hdr = self._prop_header(prop_addr)
+            if hdr == 0:
+                return 0
             if pnum == prop_num:
-                return prop_addr + 1  # address of property data (after size byte)
-            prop_addr += 1 + plen
+                return prop_addr + hdr
+            prop_addr += hdr + plen
 
     def _get_next_prop(self, obj_num: int, prop_num: int) -> int:
         """Return the property number after prop_num for obj_num.
 
         If prop_num == 0, returns the first (highest-numbered) property.
         Returns 0 if there are no further properties.
-        Note: V3 properties are stored in descending order of property number.
+        Properties are stored in descending order of property number.
         """
         if obj_num < 1: return 0
         addr = self._obj_addr(obj_num)
-        prop_addr = self.read_word(addr + 7)
-        # Skip object name
+        prop_addr = self.read_word(addr + self._obj_prop_ptr_off)
         name_len = self.memory[prop_addr] * 2
         prop_addr += 1 + name_len
         while True:
-            size_byte = self.memory[prop_addr]
-            if size_byte == 0: return 0
-            pnum = size_byte & 0x1F
-            plen = (size_byte >> 5) + 1
-            # Return this property if we haven't found prop_num yet (prop_num==0)
-            # or if this entry immediately follows prop_num in the list (pnum < prop_num)
+            pnum, plen, hdr = self._prop_header(prop_addr)
+            if hdr == 0: return 0
             if prop_num == 0 or pnum < prop_num:
                 return pnum
-            prop_addr += 1 + plen
+            prop_addr += hdr + plen
 
     def _insert_obj(self, obj_num: int, dest: int) -> None:
-        """Make obj_num the first child of dest (standard INSERT_OBJ semantics).
-
-        First detaches obj_num from its current parent (if any), then makes
-        it the new first child of dest — its sibling becomes the old first child.
-        """
+        """Make obj_num the first child of dest (standard INSERT_OBJ semantics)."""
         self._remove_obj(obj_num)
         old_child = self._get_obj_child(dest)
-        self.memory[self._obj_addr(obj_num) + 4] = dest      # set parent → dest
-        self.memory[self._obj_addr(obj_num) + 5] = old_child # set sibling → old first child
-        self.memory[self._obj_addr(dest) + 6] = obj_num      # dest's child → obj_num
+        self._set_obj_parent(obj_num, dest)
+        self._set_obj_sibling(obj_num, old_child)
+        self._set_obj_child(dest, obj_num)
 
     def _remove_obj(self, obj_num: int) -> None:
         """Remove obj_num from its parent's child list.
@@ -1355,18 +1487,16 @@ class ZMachineV3:
         sibling = self._get_obj_sibling(obj_num)
         child = self._get_obj_child(parent)
         if child == obj_num:
-            # obj_num is the first child: replace with its sibling
-            self.memory[self._obj_addr(parent) + 6] = sibling
+            self._set_obj_child(parent, sibling)
         else:
-            # Walk sibling chain to find the predecessor of obj_num
             while child != 0:
                 next_sib = self._get_obj_sibling(child)
                 if next_sib == obj_num:
-                    self.memory[self._obj_addr(child) + 5] = sibling
+                    self._set_obj_sibling(child, sibling)
                     break
                 child = next_sib
-        self.memory[self._obj_addr(obj_num) + 4] = 0  # clear parent
-        self.memory[self._obj_addr(obj_num) + 5] = 0  # clear sibling
+        self._set_obj_parent(obj_num, 0)
+        self._set_obj_sibling(obj_num, 0)
 
     # ------------------------------------------------------------------
     # PUT_PROP and READ helpers — used by _dispatch_var opcodes 0x03/0x04
@@ -1387,58 +1517,51 @@ class ZMachineV3:
         if obj_num < 1:
             return
         addr = self._obj_addr(obj_num)
-        prop_addr = self.read_word(addr + 7)
+        prop_addr = self.read_word(addr + self._obj_prop_ptr_off)
         # Skip the object name: byte 0 = name length in Z-string words
         name_len = self.memory[prop_addr] * 2
         prop_addr += 1 + name_len
         while True:
-            size_byte = self.memory[prop_addr]
-            if size_byte == 0:
+            pnum, plen, hdr = self._prop_header(prop_addr)
+            if hdr == 0:
                 return  # property not present — ignore write (spec §12.5)
-            pnum = size_byte & 0x1F
-            plen = (size_byte >> 5) + 1
             if pnum == prop_num:
                 if plen == 1:
-                    self.memory[prop_addr + 1] = val & 0xFF
+                    self.memory[prop_addr + hdr] = val & 0xFF
                 else:
-                    # 2-byte (or oversized) property: write as big-endian word
-                    self.write_word(prop_addr + 1, val)
+                    self.write_word(prop_addr + hdr, val)
                 return
-            prop_addr += 1 + plen
+            prop_addr += hdr + plen
 
-    def _encode_zword(self, word: str) -> tuple[int, int]:
-        """Encode a word as two Z-machine dictionary words (4 bytes, 6 Z-chars).
+    def _encode_zword(self, word: str) -> tuple[int, ...]:
+        """Encode a word as a Z-machine dictionary key.
 
-        V3 dictionary entries use exactly 6 Z-characters packed into two 16-bit
-        words (3 chars per word, 5 bits each). The last word has bit 15 set.
-        Words shorter than 6 chars are padded with Z-char 5 per spec §3.7.
-        Note: Z-char 5 is used as dictionary padding specifically — in this
-        context it signals end-of-word rather than acting as a shift code.
+        V3:   4 bytes = 2 words = 6 Z-chars packed as (w1, w2)
+        V5+:  6 bytes = 3 words = 9 Z-chars packed as (w1, w2, w3)
+        Each word packs 3 Z-chars (5 bits each) into bits 14-10, 9-5, 4-0.
+        The last word has bit 15 set (end-of-string marker per spec §3.7).
+        Words shorter than n_chars are padded with Z-char 5.
 
-        Only lowercase alphabet (A0) characters are handled here since dictionary
-        lookups are always done after lowercasing. Non-alphabetic characters use
-        code 5 (padding) as a safe fallback.
-
-        Returns (word1, word2) where word2 has bit 15 set (end-of-string marker).
+        Only lowercase A0 alphabet characters are handled; others map to code 5.
         """
-        # Map each character to a 5-bit Z-char code.
-        # A0: a=6, b=7, ..., z=31. Space=0 (but not expected in words).
-        # Non-alphabetic (e.g. digits, punctuation): pad with 5.
+        n_chars = 6 if self.version <= 3 else 9  # 6 Z-chars (V3) or 9 Z-chars (V5+)
         codes: list[int] = []
-        for c in word[:6]:
+        for c in word[:n_chars]:
             if 'a' <= c <= 'z':
                 codes.append(6 + (ord(c) - ord('a')))
             else:
                 codes.append(5)  # padding for non-alpha
-        # Pad to exactly 6 codes
-        while len(codes) < 6:
+        while len(codes) < n_chars:
             codes.append(5)
 
-        # Pack 3 codes per 16-bit word (bits 14-10, 9-5, 4-0)
-        w1 = (codes[0] << 10) | (codes[1] << 5) | codes[2]
-        w2 = (codes[3] << 10) | (codes[4] << 5) | codes[5]
-        w2 |= 0x8000  # bit 15 = end-of-string marker (required on last word)
-        return w1, w2
+        # Pack into 16-bit words, 3 Z-chars per word
+        n_words = n_chars // 3
+        words = []
+        for i in range(n_words):
+            c0, c1, c2 = codes[i * 3], codes[i * 3 + 1], codes[i * 3 + 2]
+            words.append((c0 << 10) | (c1 << 5) | c2)
+        words[-1] |= 0x8000  # end-of-string marker on last word
+        return tuple(words)
 
     def _lookup_dictionary(self, word: str) -> int:
         """Look up a word in the game's dictionary; return its byte address or 0.
@@ -1451,9 +1574,9 @@ class ZMachineV3:
         Dictionary layout (at self.dictionary_addr):
           byte 0:    n = number of word-separator characters
           bytes 1..n: separator character codes
-          byte n+1:  entry_length (bytes per entry; always 7 for V3: 4-byte key + 3 data)
+          byte n+1:  entry_length (bytes per entry; 7 for V3, 9 for V5)
           2 bytes:   num_entries (big-endian)
-          entries:   sorted by their 4-byte Z-string key
+          entries:   sorted by their Z-string key (4 bytes for V3, 6 bytes for V5)
 
         Returns the byte address of the matching entry, or 0 if not found.
         """
@@ -1465,21 +1588,24 @@ class ZMachineV3:
         num_entries = self.read_word(d + 2 + num_sep)
         entries_base = d + 2 + num_sep + 2  # byte address of first entry
 
-        # Encode the lookup word to its 4-byte Z-string key (two words)
-        target_w1, target_w2 = self._encode_zword(word.lower())
+        # Encode the lookup word; result length depends on version (2 or 3 words)
+        target = self._encode_zword(word.lower())
+        n_key_words = len(target)  # 2 for V3, 3 for V5+
 
         # Binary search over the sorted entries
         lo, hi = 0, num_entries - 1
         while lo <= hi:
             mid = (lo + hi) // 2
             entry_addr = entries_base + mid * entry_len
-            ew1 = self.read_word(entry_addr)
-            ew2 = self.read_word(entry_addr + 2)
-            if ew1 == target_w1 and ew2 == target_w2:
-                return entry_addr   # found
-            # Compare as a 32-bit unsigned key for ordering
-            entry_key  = (ew1  << 16) | ew2
-            target_key = (target_w1 << 16) | target_w2
+            entry = tuple(self.read_word(entry_addr + i * 2) for i in range(n_key_words))
+            if entry == target:
+                return entry_addr  # found
+            # Numeric comparison for ordering (treat key as big-endian integer)
+            entry_key  = 0
+            target_key = 0
+            for ew, tw in zip(entry, target):
+                entry_key  = (entry_key  << 16) | ew
+                target_key = (target_key << 16) | tw
             if target_key < entry_key:
                 hi = mid - 1
             else:
@@ -1537,35 +1663,34 @@ class ZMachineV3:
         self._print_str(cmd + "\n")
 
         # Write to text buffer (if address non-zero).
-        # V3 layout: byte 0 = max length (already set by game), bytes 1+ = text + NUL.
+        # V3 layout: byte 0 = max chars; bytes 1+ = text + NUL.
+        # V5 layout: byte 0 = max chars; byte 1 = actual length (we write this);
+        #            bytes 2+ = text (NOT null-terminated).
         max_chars = self.memory[text_buf] if text_buf > 0 else 200
         cmd_bytes = cmd.encode("ascii", errors="replace")[:max_chars]
+        text_start = 1 if self.version <= 3 else 2   # offset from text_buf where text begins
         if text_buf > 0:
             for i, b in enumerate(cmd_bytes):
-                self.memory[text_buf + 1 + i] = b
-            self.memory[text_buf + 1 + len(cmd_bytes)] = 0  # null-terminate
+                self.memory[text_buf + text_start + i] = b
+            if self.version <= 3:
+                self.memory[text_buf + text_start + len(cmd_bytes)] = 0  # NUL-terminate
+            else:
+                self.memory[text_buf + 1] = len(cmd_bytes)  # V5 length byte
 
         # Tokenize into parse buffer (up to 8 space-delimited tokens).
-        # The game relies on parse buffer entries having correct dictionary addresses;
-        # writing 0 for unknown words causes Zork to fall through to "I don't know".
-        # We call _lookup_dictionary() to supply the real address where possible.
         tokens = cmd.split()[:8]
         if parse_buf > 0:
             self.memory[parse_buf + 1] = len(tokens)
-            # search_start advances past each found token so that repeated words
-            # (e.g. "put egg in egg") get correct 1-indexed positions rather than
-            # always finding the first occurrence.
             search_start = 0
             for i, word in enumerate(tokens):
                 offset = parse_buf + 2 + i * 4
-                # Look up word in game's dictionary; 0 = not found (game handles gracefully)
                 dict_addr = self._lookup_dictionary(word)
                 self.write_word(offset, dict_addr)
                 self.memory[offset + 2] = len(word)
-                # Position: 1-indexed byte offset of word's first char in text_buf.
-                # Text is stored at text_buf+1, so a word at cmd[0] is at text_buf+1,
-                # giving position = 1 (spec §8.4.3 counts from text_buf[0]).
+                # Position: byte offset of word's first char from text_buf[0].
+                # V3: text starts at text_buf[1] → first char position = 1.
+                # V5: text starts at text_buf[2] → first char position = 2.
                 pos = cmd.find(word, search_start)
                 if pos >= 0:
                     search_start = pos + len(word)
-                self.memory[offset + 3] = (pos + 1) if pos >= 0 else 0
+                self.memory[offset + 3] = (pos + text_start) if pos >= 0 else 0
