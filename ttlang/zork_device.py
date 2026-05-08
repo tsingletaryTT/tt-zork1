@@ -20,8 +20,7 @@ import torch
 import ttnn
 from ttlang.zmachine_v3 import ZMachineV3
 
-INSTRUCTIONS_STARTUP = 10000   # Zork1 init phase runs ~2000-5000 instructions before first READ
-INSTRUCTIONS_PER_TURN = 5000   # generous budget per turn; Zork1 typical command ~200-500 steps
+INSTRUCTIONS_BATCH = 2000  # instructions per interpret() call; loop runs until waiting_for_input
 
 
 def open_device() -> ttnn.Device:
@@ -56,6 +55,17 @@ def device_to_bytes(tensor: ttnn.Tensor) -> bytearray:
     return bytearray(int(round(float(v))) & 0xFF for v in t.tolist())
 
 
+def _run_until_input(zm: ZMachineV3) -> None:
+    """Run the interpreter until it pauses waiting for input (or the game ends).
+
+    Calls interpret() at least once — when input_command is set, the first call
+    clears waiting_for_input and resumes execution. Then loops until the next READ.
+    """
+    zm.interpret(INSTRUCTIONS_BATCH)
+    while zm.running and not zm.waiting_for_input:
+        zm.interpret(INSTRUCTIONS_BATCH)
+
+
 def run_on_device(game_path: str) -> None:
     """Run Zork with game data on QB2 DRAM."""
     game_bytes = Path(game_path).read_bytes()
@@ -76,8 +86,8 @@ def run_on_device(game_path: str) -> None:
         # Run the interpreter using the DRAM-backed bytes
         zm = ZMachineV3(bytes(dram_bytes))
 
-        # Opening sequence
-        zm.interpret(INSTRUCTIONS_STARTUP)
+        # Opening sequence — run until the first READ prompt
+        _run_until_input(zm)
         output = zm.flush_output()
         if output:
             print(output, end="", flush=True)
@@ -96,7 +106,7 @@ def run_on_device(game_path: str) -> None:
                 break
 
             zm.input_command = command
-            zm.interpret(INSTRUCTIONS_PER_TURN)
+            _run_until_input(zm)
             output = zm.flush_output()
             if output:
                 print(output, end="", flush=True)
