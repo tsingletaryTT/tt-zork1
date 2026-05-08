@@ -997,25 +997,32 @@ bash demos/record-all.sh zork2-stage2 zork2-ai
   };
 
   AsciinemaPlayer.create('demos/stage1.cast', document.getElementById('player-stage1'),
-    { ...opts, cols: 120, rows: 35, title: 'Stage 1 — Pure Python' });
+    { ...opts, cols: 120, rows: 35, title: 'Stage 1 — Pure Python',
+      poster: 'npt:0:04', preload: true });
 
   AsciinemaPlayer.create('demos/stage2.cast', document.getElementById('player-stage2'),
-    { ...opts, cols: 120, rows: 35, title: 'Stage 2 — QB2 DRAM' });
+    { ...opts, cols: 120, rows: 35, title: 'Stage 2 — QB2 DRAM',
+      poster: 'npt:0:08', preload: true });
 
   AsciinemaPlayer.create('demos/stage3.cast', document.getElementById('player-stage3'),
-    { ...opts, cols: 120, rows: 35, title: 'Stage 3 — RISC-V cores' });
+    { ...opts, cols: 120, rows: 35, title: 'Stage 3 — RISC-V cores',
+      poster: 'npt:0:03', preload: true });
 
   AsciinemaPlayer.create('demos/hybrid.cast', document.getElementById('player-hybrid'),
-    { ...opts, cols: 120, rows: 35, title: 'Hybrid — human plays, LLM remix on' });
+    { ...opts, cols: 120, rows: 35, title: 'Hybrid — human plays, LLM remix on',
+      poster: 'npt:0:40', preload: true });
 
   AsciinemaPlayer.create('demos/ai.cast', document.getElementById('player-ai'),
-    { ...opts, cols: 160, rows: 40, title: 'AI auto-play — experimental persona, 30 turns' });
+    { ...opts, cols: 160, rows: 40, title: 'AI auto-play — experimental persona, 30 turns',
+      poster: 'npt:1:00', preload: true });
 
   AsciinemaPlayer.create('demos/zork2-stage2.cast', document.getElementById('player-zork2-stage2'),
-    { ...opts, cols: 120, rows: 35, title: 'Zork II — pure Python interpreter' });
+    { ...opts, cols: 120, rows: 35, title: 'Zork II — pure Python interpreter',
+      poster: 'npt:0:06', preload: true });
 
   AsciinemaPlayer.create('demos/zork2-ai.cast', document.getElementById('player-zork2-ai'),
-    { ...opts, cols: 160, rows: 40, title: 'Zork II × Llama — naive persona, 15 turns' });
+    { ...opts, cols: 160, rows: 40, title: 'Zork II × Llama — naive persona, 15 turns',
+      poster: 'npt:0:30', preload: true });
 </script>
 
 </body>
