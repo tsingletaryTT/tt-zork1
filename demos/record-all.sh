@@ -24,19 +24,21 @@ LLM_URL="${ZORK_LLM_URL:-http://localhost:8000/v1/chat/completions}"
 
 # ── Demo registry ─────────────────────────────────────────────────────────────
 # Each entry: "name|script|cols|rows|needs_llm"
-# ai uses 160x40 to give the TUI enough room.
+# ai and zork2-ai use 160x40 to give the TUI enough room.
 
 DEMOS=(
     "stage1|demos/demo-stage1.sh|120|35|no"
     "stage2|demos/demo-stage2.sh|120|35|no"
     "hybrid|demos/demo-hybrid.sh|120|35|yes"
     "ai|demos/demo-ai.sh|160|40|yes"
+    "zork2-stage2|demos/demo-zork2-stage2.sh|120|35|no"
+    "zork2-ai|demos/demo-zork2-ai.sh|160|40|yes"
 )
 
 # ── Stage list ────────────────────────────────────────────────────────────────
 
 if [[ $# -eq 0 ]]; then
-    TARGETS=(stage1 stage2 hybrid ai)
+    TARGETS=(stage1 stage2 hybrid ai zork2-stage2 zork2-ai)
 else
     TARGETS=("$@")
 fi
@@ -114,7 +116,7 @@ record_demo() {
     done
 
     if [[ -z "$entry" ]]; then
-        echo "Unknown demo: ${name}. Valid names: stage1 stage2 hybrid ai"
+        echo "Unknown demo: ${name}. Valid names: stage1 stage2 hybrid ai zork2-stage2 zork2-ai"
         return 1
     fi
 
