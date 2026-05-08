@@ -29,7 +29,7 @@ fi
 echo ""
 echo "╔══════════════════════════════════════════════════════════════"
 echo "║  ZORK II × LLAMA 3.3 70B — AI PLAYER"
-echo "║  Persona: expert  |  Turns: 20  |  Full TUI"
+echo "║  Persona: naive  |  Turns: 15  |  Full TUI"
 echo "║  The model explores The Wizard of Frobozz. You watch."
 echo "╚══════════════════════════════════════════════════════════════"
 echo ""
@@ -40,5 +40,5 @@ python play.py \
     --game game/zork2.z3 \
     --remix \
     --tui \
-    --persona expert \
-    --turns 20
+    --persona naive \
+    --turns 15
