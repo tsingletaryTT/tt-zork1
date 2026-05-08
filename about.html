@@ -237,6 +237,37 @@
     th, td { padding: 0.4rem 0.6rem; }
     .topnav-links { display: none; }
   }
+  /* ── GIF demos ── */
+  .demo-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+  }
+  .demo-item {}
+  .demo-item .demo-caption {
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-family: monospace;
+    margin-top: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .demo-item .demo-caption::before { content: "▶"; color: var(--teal); font-size: 0.65rem; }
+  .demo-item img {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    display: block;
+  }
+  .demo-item.wide {
+    grid-column: 1 / -1;
+  }
+  @media (max-width: 640px) {
+    .demo-grid { grid-template-columns: 1fr; }
+    .demo-item.wide { grid-column: auto; }
+  }
 </style>
 </head>
 <body>
@@ -269,6 +300,34 @@
   <p class="hero-sub">
     Running a 1977 stack-based virtual machine on 2026 AI accelerator hardware —
     three hardware stages, an LLM remix layer, and a full terminal UI.
+  </p>
+</section>
+
+<!-- ── Demos ── -->
+<section class="section">
+  <h2>Demos</h2>
+  <p>
+    All demos use the <code>--stage sim</code> Python interpreter. The LLM remix layer
+    and AI auto-play connect to Llama-3.3-70B running on Tensix cores via
+    <code>tt-inference-server</code>.
+  </p>
+  <div class="demo-grid">
+    <div class="demo-item wide">
+      <img src="demos/hybrid.gif" alt="Hybrid demo — human plays, LLM rewrites every response">
+      <p class="demo-caption">Hybrid — human plays, Llama-3.3-70B rewrites every Z-machine response</p>
+    </div>
+    <div class="demo-item">
+      <img src="demos/stage2.gif" alt="Stage 2 — game binary on Blackhole DRAM">
+      <p class="demo-caption">Stage 2 — game binary on Blackhole DRAM</p>
+    </div>
+    <div class="demo-item">
+      <img src="demos/ai-preview.gif" alt="AI auto-play — LLM plays Zork, full TUI">
+      <p class="demo-caption">AI auto-play — experimental persona, 30 turns, full TUI (first 60s)</p>
+    </div>
+  </div>
+  <p>
+    <a href="index.html">→ Full interactive demo page</a> with embedded asciinema players
+    for all seven recordings including Zork II.
   </p>
 </section>
 

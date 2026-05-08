@@ -1,6 +1,22 @@
-# Zork I on Tenstorrent
+# TT-Zork & More
 
-Zork I running on a Tenstorrent Blackhole accelerator, in three hardware stages and an optional LLM remix layer.
+Zork I (and II, III) running on a Tenstorrent Blackhole accelerator, in three hardware stages and an optional LLM remix layer.
+
+---
+
+## Demos
+
+**Hybrid — human plays, Llama-3.3-70B rewrites every response:**
+
+![Hybrid demo](demos/hybrid.gif)
+
+**Stage 2 — game binary on Blackhole DRAM:**
+
+![Stage 2 demo](demos/stage2.gif)
+
+**AI auto-play — LLM plays the game, full TUI (first 60s):**
+
+![AI auto-play demo](demos/ai-preview.gif)
 
 ---
 
@@ -15,8 +31,8 @@ This project runs the Z-machine on those three levels of the Tenstorrent stack:
 | Stage | Where the game runs |
 |-------|---------------------|
 | 1 — sim | Python Z-machine interpreter on the host CPU |
-| 2 — device | Same interpreter; game binary resides on QB2 DRAM |
-| 3 — risc-v | Z-machine interpreter kernel running on QB2 RISC-V cores |
+| 2 — device | Same interpreter; game binary resides on Blackhole DRAM |
+| 3 — risc-v | Z-machine interpreter kernel running on Blackhole RISC-V cores |
 | +remix | LLM response layer served by tt-inference-server on Tensix |
 
 ---
@@ -61,7 +77,7 @@ Available game files in `game/`: `zork1.z3`, `zork2.z3`, `zork3.z3`, `advent.z5`
 
 `engines/sim.py` wraps `ttlang/zmachine_v3.py`, a complete Python implementation of the Z-machine V3 specification. No hardware is required. The interpreter runs the game's bytecode locally, handling all opcodes, the object tree, the dictionary, Z-string abbreviation decoding, and the READ/PRINT I/O loop.
 
-### Stage 2 — QB2 DRAM (`--stage device`)
+### Stage 2 — Blackhole DRAM (`--stage device`)
 
 `engines/device.py` opens a Tenstorrent Blackhole device via `ttnn`, uploads the 87 KB game binary to on-chip DRAM as a `ttnn.Tensor`, verifies the round-trip (first 8 header bytes), and records the physical DRAM address. The Python Z-machine interpreter then runs against those DRAM-resident bytes on the host. The game data lives on silicon; the interpreter logic runs on the host CPU. This validates the data path that Stage 3 reuses.
 
@@ -69,11 +85,11 @@ Requires: `/dev/tenstorrent` present, TT-Lang pyenv active.
 
 ### Stage 3 — RISC-V cores (`--stage risc-v`)
 
-`engines/riscv.py` dispatches `kernels/zork_interpreter_l1.cpp` to QB2 Blackhole RISC-V cores via `ttnn.generic_op`. The kernel implements the Z-machine interpreter in C++: it reads game bytecode from DRAM via the on-chip NoC, executes instructions, decodes Z-strings, and writes output back to DRAM. The Python host reads the result after each batch.
+`engines/riscv.py` dispatches `kernels/zork_interpreter_l1.cpp` to Blackhole RISC-V cores via `ttnn.generic_op`. The kernel implements the Z-machine interpreter in C++: it reads game bytecode from DRAM via the on-chip NoC, executes instructions, decodes Z-strings, and writes output back to DRAM. The Python host reads the result after each batch.
 
-**Current constraints:** The QB2 firmware watchdog limits each kernel invocation to approximately 10 Z-machine instructions. A third `generic_op` call within a single device session hangs reliably (diagnosed in `ttlang/diag_batch3.py`); the workaround is opening and closing the device for each batch. State does not persist across `step()` calls — each command restarts the interpreter from the initial PC. These are hardware/driver constraints, not architecture limitations.
+**Current constraints:** The Blackhole chip firmware limits each kernel invocation to approximately 10 Z-machine instructions before the execution watchdog fires. A third `generic_op` call within a single device session hangs reliably (diagnosed in `ttlang/diag_batch3.py`); the workaround is opening and closing the device for each batch. State does not persist across `step()` calls — each command restarts the interpreter from the initial PC. These are firmware execution budget constraints, not architecture limitations.
 
-Requires: QB2 Blackhole hardware, TT-Lang pyenv active, `kernels/zork_interpreter_l1.cpp` built.
+Requires: Blackhole hardware (p300c card), TT-Lang pyenv active, `kernels/zork_interpreter_l1.cpp` built.
 
 ### Remix layer (`--remix`)
 
@@ -147,7 +163,7 @@ In the TUI, `/auto expert` triggers the same loop mid-session; `/stop` hands con
 - `pip install textual requests` (textual for `--tui`, requests for remix LLM calls)
 
 **Stages 2 and 3 (device, risc-v):**
-- Tenstorrent QB2 Blackhole hardware
+- Tenstorrent Blackhole hardware (p300c card)
 - TT-Lang pyenv: `source ~/code/tt-lang/build/env/activate`
 - For Stage 3: kernel built and accessible at `kernels/zork_interpreter_l1.cpp`
 
@@ -168,11 +184,11 @@ In the TUI, `/auto expert` triggers the same loop mid-session; `/stop` hands con
 play.py                  # Entry point — all stages and modes
 engines/
   sim.py                 # Stage 1: pure Python
-  device.py              # Stage 2: QB2 DRAM-backed
+  device.py              # Stage 2: Blackhole DRAM-backed
   riscv.py               # Stage 3: RISC-V kernel dispatch
 ttlang/
   zmachine_v3.py         # Python Z-machine V3 interpreter (~700 lines)
-  zork_device.py         # QB2 DRAM upload / verify helper
+  zork_device.py         # Blackhole DRAM upload / verify helper
   zork_risc.py           # RISC-V batch loop (open→run→close per batch)
 kernels/
   zork_interpreter_l1.cpp  # RISC-V Z-machine interpreter kernel
