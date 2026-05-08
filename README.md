@@ -22,6 +22,18 @@ Zork I (and II, III) running on a Tenstorrent Blackhole accelerator, in three ha
 
 ![Adventure demo](demos/advent-preview.gif)
 
+**The Hitchhiker's Guide to the Galaxy — Blackhole DRAM:**
+
+![HHGG demo](demos/hhgg-preview.gif)
+
+**Planetfall — Blackhole DRAM:**
+
+![Planetfall demo](demos/planetfall-preview.gif)
+
+**Leather Goddesses of Phobos — Blackhole DRAM:**
+
+![LGOP demo](demos/lgop-preview.gif)
+
 ---
 
 ## Background
@@ -218,6 +230,7 @@ game/
   zork2.z3               # Zork II V3 bytecode (MIT-licensed)
   zork3.z3               # Zork III V3 bytecode (MIT-licensed)
   advent.z5              # Colossal Cave Adventure Z5 (Graham Nelson port)
+  fetch-infocom.sh       # Downloads hhgg.z3, planetfall.z3, lgop.z3 from historicalsource
   LICENSES.md            # Per-file license details
 tests/                   # pytest test suite (Python components)
 src/                     # Earlier C/Frotz implementation (historical)

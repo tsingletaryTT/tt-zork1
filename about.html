@@ -328,10 +328,23 @@
       <img src="demos/advent-preview.gif" alt="Colossal Cave Adventure — Z-machine V5">
       <p class="demo-caption">Colossal Cave Adventure — Z5, the original text adventure (1976)</p>
     </div>
+    <div class="demo-item">
+      <img src="demos/hhgg-preview.gif" alt="The Hitchhiker's Guide to the Galaxy — Blackhole DRAM">
+      <p class="demo-caption">Hitchhiker's Guide to the Galaxy — V3 Release 60, Blackhole DRAM (1984)</p>
+    </div>
+    <div class="demo-item">
+      <img src="demos/planetfall-preview.gif" alt="Planetfall — Blackhole DRAM">
+      <p class="demo-caption">Planetfall — V3 Release 39, Blackhole DRAM (1983)</p>
+    </div>
+    <div class="demo-item">
+      <img src="demos/lgop-preview.gif" alt="Leather Goddesses of Phobos — Blackhole DRAM">
+      <p class="demo-caption">Leather Goddesses of Phobos — V3 Release 59, Blackhole DRAM (1986)</p>
+    </div>
   </div>
   <p>
     <a href="index.html">→ Full interactive demo page</a> with embedded asciinema players
-    for all eight recordings including Zork II and Colossal Cave Adventure.
+    for all eleven recordings including Zork II, Colossal Cave Adventure, and three more
+    classic Infocom titles on Blackhole DRAM.
   </p>
 </section>
 
@@ -411,6 +424,9 @@ python play.py --stage device --remix --tui</code></pre>
     Available game files in <code>game/</code>: <code>zork1.z3</code>, <code>zork2.z3</code>,
     <code>zork3.z3</code>, <code>advent.z5</code>. Zork I–III are Z-machine V3;
     Colossal Cave Adventure (<code>advent.z5</code>) is Graham Nelson's V5 port.
+    Three additional Infocom titles — <code>hhgg.z3</code>,
+    <code>planetfall.z3</code>, <code>lgop.z3</code> — are not redistributed; run
+    <code>bash game/fetch-infocom.sh</code> to download them from historicalsource.
     Use <code>--game</code> to point at any Z-machine story file.
   </p>
 </section>

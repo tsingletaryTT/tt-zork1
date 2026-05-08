@@ -43,6 +43,49 @@ which this repository is licensed.
 
 ---
 
+## The Hitchhiker's Guide to the Galaxy  (`hhgg.z3`)
+
+Copyright © Infocom, Inc. / Activision / Douglas Adams.
+
+ZIL source and compiled story file (`s4.zip`, Release 60) published by Infocom's
+original development team at:
+
+- https://github.com/historicalsource/hitchhikersguide
+
+This file is **not redistributed** in this repository.  The download script
+`game/fetch-infocom.sh` fetches it directly from the historicalsource repository
+at runtime.  Licensing status under the November 2025 Infocom open-source grant
+is not yet confirmed for this title; it is provided here for personal,
+non-commercial testing only.
+
+---
+
+## Planetfall  (`planetfall.z3`)
+
+Copyright © Infocom, Inc. / Steve Meretzky.
+
+ZIL source and compiled story file (`planetfall.zip`, Release 39) published at:
+
+- https://github.com/historicalsource/planetfall
+
+Not redistributed here.  Fetched on demand by `game/fetch-infocom.sh`.
+Same licensing note as HHGG above.
+
+---
+
+## Leather Goddesses of Phobos  (`lgop.z3`)
+
+Copyright © Infocom, Inc. / Steve Meretzky.
+
+ZIL source and compiled story file (`x1.zip`, Release 59) published at:
+
+- https://github.com/historicalsource/leathergoddesses
+
+Not redistributed here.  Fetched on demand by `game/fetch-infocom.sh`.
+Same licensing note as HHGG above.
+
+---
+
 ## Note on `zork1.z3`
 
 The `zork1.z3` file predates the November 2025 MIT license grant; its MD5

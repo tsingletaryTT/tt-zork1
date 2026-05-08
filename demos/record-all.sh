@@ -34,12 +34,15 @@ DEMOS=(
     "zork2-stage2|demos/demo-zork2-stage2.sh|120|35|no"
     "zork2-ai|demos/demo-zork2-ai.sh|160|40|yes"
     "advent|demos/demo-advent.sh|120|35|no"
+    "hhgg|demos/demo-hhgg.sh|120|35|no"
+    "planetfall|demos/demo-planetfall.sh|120|35|no"
+    "lgop|demos/demo-lgop.sh|120|35|no"
 )
 
 # ── Stage list ────────────────────────────────────────────────────────────────
 
 if [[ $# -eq 0 ]]; then
-    TARGETS=(stage1 stage2 hybrid ai zork2-stage2 zork2-ai advent)
+    TARGETS=(stage1 stage2 hybrid ai zork2-stage2 zork2-ai advent hhgg planetfall lgop)
 else
     TARGETS=("$@")
 fi
@@ -117,7 +120,7 @@ record_demo() {
     done
 
     if [[ -z "$entry" ]]; then
-        echo "Unknown demo: ${name}. Valid names: stage1 stage2 hybrid ai zork2-stage2 zork2-ai"
+        echo "Unknown demo: ${name}. Valid names: stage1 stage2 hybrid ai zork2-stage2 zork2-ai advent hhgg planetfall lgop"
         return 1
     fi
 

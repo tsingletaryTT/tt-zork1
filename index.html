@@ -369,6 +369,9 @@
       <a href="#remix">Remix</a>
       <a href="#ai">AI play</a>
       <a href="#zork2">Zork II</a>
+      <a href="#hhgg">HHGG</a>
+      <a href="#planetfall">Planetfall</a>
+      <a href="#lgop">LGOP</a>
     </div>
     <a class="topnav-github" href="https://github.com/tsingletaryTT/tt-zork-and-more" target="_blank" rel="noopener">
       ★ GitHub
@@ -402,6 +405,9 @@
   <a href="#remix"><span class="num">+</span> Remix</a>
   <a href="#ai"><span class="num">AI</span> Auto-play</a>
   <a href="#advent"><span class="num">▸</span> Adventure</a>
+  <a href="#hhgg"><span class="num">▸</span> HHGG</a>
+  <a href="#planetfall"><span class="num">▸</span> Planetfall</a>
+  <a href="#lgop"><span class="num">▸</span> LGOP</a>
 </nav>
 
 <!-- ── Background ───────────────────────────────────────────── -->
@@ -992,6 +998,114 @@ python play.py \
   </div>
 </section>
 
+<!-- ── HHGG ───────────────────────────────────────────────────── -->
+<section class="section" id="hhgg">
+  <div class="stage-badge pink"><span class="dot"></span> HHGG · Blackhole DRAM</div>
+  <h2>The Hitchhiker's Guide to the Galaxy — Infocom, 1984</h2>
+
+  <p>
+    Douglas Adams and Steve Meretzky's adaptation of <em>The Hitchhiker's Guide to the Galaxy</em>
+    is the most notoriously cruel game in the Infocom catalogue — and one of the best-written.
+    The opening sequence, in Arthur Dent's dark bedroom, is a masterclass in player
+    manipulation: the game's very first puzzle has no solution other than giving up.
+    It is also one of the few Infocom titles to have a genuine
+    <em>literary</em> reputation independent of the medium.
+  </p>
+
+  <p>
+    The compiled story file (<code>s4.zip</code>, Release 60) is sourced directly from
+    <a href="https://github.com/historicalsource/hitchhikersguide" target="_blank" rel="noopener">historicalsource/hitchhikersguide</a>
+    at runtime via <code>game/fetch-infocom.sh</code> and is not redistributed here.
+    It runs on the same interpreter — game binary on Blackhole DRAM, Python on the host.
+  </p>
+
+  <p>
+    The demo shows the dark bedroom opener, the legendary "turn on light" response,
+    Arthur's dressing gown and its mysterious pocket contents, and a move through
+    the house toward the sitting room where the adventure begins.
+  </p>
+
+  <div class="player-wrap">
+    <div class="player-label">demos/hhgg.cast — The Hitchhiker's Guide to the Galaxy, V3 Release 60, Blackhole DRAM</div>
+    <div id="player-hhgg"></div>
+  </div>
+
+  <pre><code># Download the story file (not included in repo)
+bash game/fetch-infocom.sh
+
+# Run on Blackhole DRAM
+python play.py --stage device --game game/hhgg.z3
+</code></pre>
+</section>
+
+<!-- ── Planetfall ─────────────────────────────────────────────── -->
+<section class="section" id="planetfall">
+  <div class="stage-badge yellow"><span class="dot"></span> Planetfall · Blackhole DRAM</div>
+  <h2>Planetfall — Infocom, 1983</h2>
+
+  <p>
+    Steve Meretzky's <em>Planetfall</em> is famous for Floyd — the cheerful robot companion
+    who will become one of interactive fiction's most beloved characters. The opening act
+    takes place on a deteriorating starship, where you are Ensign Seventh Class and your
+    assigned duty is swabbing the decks with a scrub brush. The alien ambassador who
+    ambles through the corridor leaving a trail of green slime appears in the first few
+    screens and sets the tone perfectly.
+  </p>
+
+  <p>
+    The compiled story file (<code>planetfall.zip</code>, Release 39) is fetched from
+    <a href="https://github.com/historicalsource/planetfall" target="_blank" rel="noopener">historicalsource/planetfall</a>
+    via <code>game/fetch-infocom.sh</code>.
+  </p>
+
+  <p>
+    The demo covers the ship-deck opener, the inventory check ("a Patrol uniform...
+    a scrub brush"), the alien ambassador, and movement through the Feinstein's
+    corridor to the Reactor Lobby.
+  </p>
+
+  <div class="player-wrap">
+    <div class="player-label">demos/planetfall.cast — Planetfall, V3 Release 39, Blackhole DRAM</div>
+    <div id="player-planetfall"></div>
+  </div>
+
+  <pre><code>python play.py --stage device --game game/planetfall.z3
+</code></pre>
+</section>
+
+<!-- ── LGOP ───────────────────────────────────────────────────── -->
+<section class="section" id="lgop">
+  <div class="stage-badge"><span class="dot"></span> LGOP · Blackhole DRAM</div>
+  <h2>Leather Goddesses of Phobos — Infocom, 1986</h2>
+
+  <p>
+    Steve Meretzky's <em>Leather Goddesses of Phobos</em> is Infocom's most overtly
+    comedic title — a send-up of 1930s pulp science fiction and B-movies, complete with
+    a content-warning disclaimer before the game begins. The setting is Upper Sandusky, Ohio,
+    1936, in a bar. Your adventure starts with the most consequential bathroom decision
+    in the history of interactive fiction.
+  </p>
+
+  <p>
+    The compiled story file (<code>x1.zip</code>, Release 59) is fetched from
+    <a href="https://github.com/historicalsource/leathergoddesses" target="_blank" rel="noopener">historicalsource/leathergoddesses</a>
+    via <code>game/fetch-infocom.sh</code>.
+  </p>
+
+  <p>
+    The demo shows the 1936 Upper Sandusky, Ohio bar setting, the satirical opening
+    disclaimer, and the first puzzle — choosing a bathroom.
+  </p>
+
+  <div class="player-wrap">
+    <div class="player-label">demos/lgop.cast — Leather Goddesses of Phobos, V3 Release 59, Blackhole DRAM</div>
+    <div id="player-lgop"></div>
+  </div>
+
+  <pre><code>python play.py --stage device --game game/lgop.z3
+</code></pre>
+</section>
+
 <!-- ── What we learned ──────────────────────────────────────── -->
 <section class="section">
   <div class="stage-badge"><span class="dot"></span> Reflections</div>
@@ -1158,6 +1272,18 @@ bash demos/record-all.sh zork2-stage2 zork2-ai
 
   AsciinemaPlayer.create('demos/advent.cast', document.getElementById('player-advent'),
     { ...opts, cols: 120, rows: 35, title: 'Colossal Cave Adventure — Z5',
+      poster: 'npt:0:05', preload: true });
+
+  AsciinemaPlayer.create('demos/hhgg.cast', document.getElementById('player-hhgg'),
+    { ...opts, cols: 120, rows: 35, title: 'Hitchhiker\'s Guide to the Galaxy — V3 on Blackhole DRAM',
+      poster: 'npt:0:05', preload: true });
+
+  AsciinemaPlayer.create('demos/planetfall.cast', document.getElementById('player-planetfall'),
+    { ...opts, cols: 120, rows: 35, title: 'Planetfall — V3 on Blackhole DRAM',
+      poster: 'npt:0:05', preload: true });
+
+  AsciinemaPlayer.create('demos/lgop.cast', document.getElementById('player-lgop'),
+    { ...opts, cols: 120, rows: 35, title: 'Leather Goddesses of Phobos — V3 on Blackhole DRAM',
       poster: 'npt:0:05', preload: true });
 </script>
 
