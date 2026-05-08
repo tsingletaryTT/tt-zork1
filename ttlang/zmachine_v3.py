@@ -40,7 +40,8 @@ class ZMachineV3:
     def _parse_header(self) -> None:
         m = self.memory
         self.version = m[0x00]
-        assert self.version == 3, f"Expected V3 game, got V{self.version}"
+        if self.version not in (3, 5):
+            raise ValueError(f"Unsupported Z-machine version {self.version} (supported: 3, 5)")
 
         # PC: initial value from header bytes 0x06-0x07
         self.initial_pc = (m[0x06] << 8) | m[0x07]
@@ -50,6 +51,17 @@ class ZMachineV3:
         self.global_vars_addr = (m[0x0C] << 8) | m[0x0D]  # global variables
         self.object_table    = (m[0x0A] << 8) | m[0x0B]  # object table
         self.dictionary_addr = (m[0x08] << 8) | m[0x09]  # dictionary
+
+        # Packed-address multipliers differ by version (Z-machine spec §1.2.3).
+        # V3: packed = addr × 2.  V5: packed = addr × 4 + 8 × header_offset.
+        if self.version <= 3:
+            self._packed_mult = 2
+            self._routine_offset = 0
+            self._string_offset  = 0
+        else:
+            self._packed_mult = 4
+            self._routine_offset = ((m[0x28] << 8) | m[0x29]) * 8
+            self._string_offset  = ((m[0x2A] << 8) | m[0x2B]) * 8
 
     def _init_state(self) -> None:
         # Program counter as integer index into self.memory
@@ -499,7 +511,7 @@ class ZMachineV3:
             self.set_var(store_var, 0)
             return
 
-        body_addr = packed_addr * 2  # V3: word address → byte address of routine header
+        body_addr = packed_addr * self._packed_mult + self._routine_offset
         num_locals = self.memory[body_addr]
         body_addr += 1  # skip num-locals byte; now points to first default-local word
 
@@ -588,9 +600,38 @@ class ZMachineV3:
         """
         opcode_byte = self.code_byte()
 
-        # EXT form (V5+, not V3) — treat as NOP to avoid garbling PC
+        # EXT form (V5+): 0xBE <ext-opcode> <operand-types-byte> [operands] [store] [branch]
+        # We implement the handful of EXT opcodes that matter for game startup;
+        # the rest are consumed and skipped so the PC stays correct.
         if opcode_byte == 0xBE:
-            self.code_byte()
+            ext_op = self.code_byte()
+            types_byte = self.code_byte()
+            # Decode up to 4 operands from the types byte (same encoding as VAR form).
+            operands = []
+            for shift in (6, 4, 2, 0):
+                t = (types_byte >> shift) & 0x03
+                if t == 3:
+                    break
+                elif t == 0:
+                    operands.append(self.code_word())
+                elif t == 1:
+                    operands.append(self.code_byte())
+                else:
+                    v = self.code_byte()
+                    operands.append(self.read_variable(v))
+            # EXT 0x09 SAVE_UNDO / EXT 0x0A RESTORE_UNDO: store −1 (unsupported).
+            if ext_op in (0x09, 0x0A):
+                store_var = self.code_byte()
+                self.set_var(store_var, 0xFFFF)  # −1 = feature unavailable
+            # EXT 0x04 SET_FONT: store 0 (previous font, signals unsupported).
+            elif ext_op == 0x04:
+                store_var = self.code_byte()
+                self.set_var(store_var, 0)
+            # All other EXT opcodes: skip optional store byte if opcode implies one.
+            # Opcodes 0x00-0x03 (SAVE,RESTORE,LOG_SHIFT,ART_SHIFT) store a result.
+            elif ext_op in (0x00, 0x01, 0x02, 0x03):
+                store_var = self.code_byte()
+                self.set_var(store_var, 0)
             return
 
         form = opcode_byte >> 6          # 0b11=VAR, 0b10=short, else long
@@ -614,10 +655,16 @@ class ZMachineV3:
             #   indices 0-31  → 2OP opcodes (used for 0xC0-0xDF)
             #   indices 32-63 → VAR-specific opcodes (used for 0xE0-0xFF)
             # We mirror that split here.
-            operands = self._load_var_operands()
+            opcode = opcode_byte & 0x1F
+            # CALL_VS2 (0x0C) and CALL_VN2 (0x1A) use TWO operand-type bytes
+            # to encode up to 8 arguments; read the second types byte here.
+            if (opcode_byte & 0x20) and opcode in (0x0C, 0x1A):
+                operands = self._load_var_operands()   # first 4 args
+                operands += self._load_var_operands()  # args 5-8
+            else:
+                operands = self._load_var_operands()
             if opcode_byte & 0x20:
                 # Bit 5 set → proper VAR opcode (0xE0-0xFF)
-                opcode = opcode_byte & 0x1F
                 self._dispatch_var(opcode, operands)
             else:
                 # Bit 5 clear → 2OP in VAR form (0xC0-0xDF)
@@ -842,8 +889,7 @@ class ZMachineV3:
             self.pc += offset - 2
 
         elif opcode == 0x0D: # PRINT_PADDR — print Z-string at packed address a
-            # V3: packed address → byte address = a * 2
-            self._print_str(self.decode_zstring(a * 2))
+            self._print_str(self.decode_zstring(a * self._packed_mult + self._string_offset))
 
         elif opcode == 0x0E: # LOAD — copy variable a's value to result variable
             self._store_result(self.get_var(a))
@@ -1034,6 +1080,35 @@ class ZMachineV3:
         elif opcode == 0x0B: # SET_WINDOW — no-op in line-based simulator
             pass
 
+        elif opcode == 0x0C: # CALL_VS2 (V5+) — CALL_VS with up to 8 args (two type bytes)
+            # The second operand-types byte was already consumed by _load_var_operands
+            # for double-type VAR; operands already holds all args including routine addr.
+            if not operands:
+                return
+            packed_addr = operands[0]
+            call_args = operands[1:]
+            store_var = self.code_byte()
+            self._do_call(packed_addr, call_args, store_var)
+
+        elif opcode == 0x0D: # ERASE_WINDOW (V4+) — no-op
+            pass
+
+        elif opcode == 0x0E: # ERASE_LINE (V4+) — no-op
+            pass
+
+        elif opcode == 0x0F: # SET_CURSOR (V4+) — no-op
+            pass
+
+        elif opcode == 0x10: # GET_CURSOR (V4+) — store (0,0); no cursor tracking
+            # operand is the array address to store row,col into; we leave it as-is
+            pass
+
+        elif opcode == 0x11: # SET_TEXT_STYLE (V4+) — no-op (plain text only)
+            pass
+
+        elif opcode == 0x12: # BUFFER_MODE (V4+) — no-op
+            pass
+
         elif opcode == 0x13: # OUTPUT_STREAM — no-op (stream management)
             pass
 
@@ -1042,6 +1117,76 @@ class ZMachineV3:
 
         elif opcode == 0x15: # SOUND_EFFECT — no-op (no audio in simulator)
             pass
+
+        elif opcode == 0x16: # READ_CHAR (V4+) — read a single character
+            # For simplicity treat like a READ that consumes one char of input.
+            store_var = self.code_byte()
+            if self.input_command:
+                ch = ord(self.input_command[0])
+                self.input_command = self.input_command[1:]
+            else:
+                ch = 13  # carriage return = Enter
+            self.set_var(store_var, ch)
+
+        elif opcode == 0x17: # SCAN_TABLE (V5+) — search word/byte table
+            # Scan table at addr for value x in len entries; store found addr or 0.
+            x, addr, length = arg(0), arg(1), arg(2)
+            form = arg(3, 0x82)   # default: word entries (0x82 = words, 0x80 = bytes)
+            entry_size = form & 0x7F
+            word_form = bool(form & 0x80)
+            found_addr = 0
+            for i in range(length):
+                ea = addr + i * entry_size
+                v = self.read_word(ea) if word_form else self.read_byte(ea)
+                if v == x:
+                    found_addr = ea
+                    break
+            store_var = self.code_byte()
+            self.set_var(store_var, found_addr)
+            self._do_branch(found_addr != 0)
+
+        elif opcode == 0x18: # NOT (V5+, moved from 1OP) — bitwise NOT, store result
+            store_var = self.code_byte()
+            self.set_var(store_var, (~arg(0)) & 0xFFFF)
+
+        elif opcode == 0x19: # CALL_VN (V5+) — call routine, discard result
+            if not operands:
+                return
+            packed_addr = operands[0]
+            call_args = operands[1:]
+            self._do_call(packed_addr, call_args, store_var=0xFF)  # 0xFF = discard
+
+        elif opcode == 0x1A: # CALL_VN2 (V5+) — CALL_VN with up to 8 args
+            if not operands:
+                return
+            packed_addr = operands[0]
+            call_args = operands[1:]
+            self._do_call(packed_addr, call_args, store_var=0xFF)
+
+        elif opcode == 0x1B: # TOKENISE (V5+) — tokenise text buffer
+            pass  # Leave the parse buffer as-is; game will still read input
+
+        elif opcode == 0x1C: # ENCODE_TEXT (V5+) — encode text to Z-chars
+            pass
+
+        elif opcode == 0x1D: # COPY_TABLE (V5+) — copy memory region
+            src, dst, size = arg(0), arg(1), arg(2)
+            if dst == 0:
+                # zero out src table
+                for i in range(abs(size)):
+                    self.write_byte(src + i, 0)
+            else:
+                n = abs(size)
+                data = [self.read_byte(src + i) for i in range(n)]
+                for i, b in enumerate(data):
+                    self.write_byte(dst + i, b)
+
+        elif opcode == 0x1E: # PRINT_TABLE (V5+) — print text table to screen
+            pass
+
+        elif opcode == 0x1F: # CHECK_ARG_COUNT (V5+) — branch if arg n was supplied
+            # We don't track arg count precisely; always branch true for safety.
+            self._do_branch(True)
 
         # Unknown VAR opcodes are silently skipped (safe for forward-compat)
 
