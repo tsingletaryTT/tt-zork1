@@ -18,6 +18,10 @@ Zork I (and II, III) running on a Tenstorrent Blackhole accelerator, in three ha
 
 ![AI auto-play demo](demos/ai-preview.gif)
 
+**Colossal Cave Adventure — Z-machine V5 (the original text adventure):**
+
+![Adventure demo](demos/advent-preview.gif)
+
 ---
 
 ## Background

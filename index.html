@@ -401,6 +401,7 @@
   <a href="#stage3"><span class="num">3</span> RISC-V</a>
   <a href="#remix"><span class="num">+</span> Remix</a>
   <a href="#ai"><span class="num">AI</span> Auto-play</a>
+  <a href="#advent"><span class="num">▸</span> Adventure</a>
 </nav>
 
 <!-- ── Background ───────────────────────────────────────────── -->
@@ -964,6 +965,33 @@ python play.py \
   </div>
 </section>
 
+<!-- ── Colossal Cave Adventure ──────────────────────────────── -->
+<section class="section" id="advent">
+  <div class="stage-badge"><span class="dot"></span> Adventure</div>
+  <h2>Going Further — Colossal Cave Adventure (Z-machine V5)</h2>
+
+  <p>
+    The Z-machine interpreter is not limited to Zork. <strong>Colossal Cave Adventure</strong>
+    — Will Crowther and Don Woods' 1976 original, the text adventure that inspired Zork —
+    runs from Graham Nelson's Z-machine V5 port (<code>game/advent.z5</code>). V5 is a
+    meaningfully harder target than V3: the instruction encoding is different (CALL_VS2 uses
+    two consecutive operand-type bytes rather than one), the AREAD opcode stores a result
+    variable, and the dictionary uses 9-byte entries instead of 7. The same interpreter
+    handles all of it transparently.
+  </p>
+
+  <p>
+    The opening puts the player at the end of a dirt road before a small brick building,
+    with a stream running out of it down a gully. The brass lamp is inside. It is exactly
+    where it has always been.
+  </p>
+
+  <div class="player-wrap">
+    <div class="player-label">demos/advent.cast — Colossal Cave Adventure, Z5, pure Python interpreter</div>
+    <div id="player-advent"></div>
+  </div>
+</section>
+
 <!-- ── What we learned ──────────────────────────────────────── -->
 <section class="section">
   <div class="stage-badge"><span class="dot"></span> Reflections</div>
@@ -1127,6 +1155,10 @@ bash demos/record-all.sh zork2-stage2 zork2-ai
   AsciinemaPlayer.create('demos/zork2-ai.cast', document.getElementById('player-zork2-ai'),
     { ...opts, cols: 160, rows: 40, title: 'Zork II × Llama — naive persona, 15 turns',
       poster: 'npt:0:30', preload: true });
+
+  AsciinemaPlayer.create('demos/advent.cast', document.getElementById('player-advent'),
+    { ...opts, cols: 120, rows: 35, title: 'Colossal Cave Adventure — Z5',
+      poster: 'npt:0:05', preload: true });
 </script>
 
 </body>

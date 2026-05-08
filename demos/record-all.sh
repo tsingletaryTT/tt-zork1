@@ -33,12 +33,13 @@ DEMOS=(
     "ai|demos/demo-ai.sh|160|40|yes"
     "zork2-stage2|demos/demo-zork2-stage2.sh|120|35|no"
     "zork2-ai|demos/demo-zork2-ai.sh|160|40|yes"
+    "advent|demos/demo-advent.sh|120|35|no"
 )
 
 # ── Stage list ────────────────────────────────────────────────────────────────
 
 if [[ $# -eq 0 ]]; then
-    TARGETS=(stage1 stage2 hybrid ai zork2-stage2 zork2-ai)
+    TARGETS=(stage1 stage2 hybrid ai zork2-stage2 zork2-ai advent)
 else
     TARGETS=("$@")
 fi
