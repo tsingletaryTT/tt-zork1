@@ -519,7 +519,9 @@ class ZMachineTuiApp(App[None]):
                     if self._initial_turns > 0:
                         self._auto_turn_count += 1
                         if self._auto_turn_count >= self._initial_turns:
-                            self._input_queue.put("STOP_AUTO")
+                            # Auto-quit when launched with --turns so the demo
+                            # recording exits cleanly instead of waiting forever.
+                            self._input_queue.put(None)
                 else:
                     # LLM unavailable — fall back to manual play.
                     _auto_name = None
