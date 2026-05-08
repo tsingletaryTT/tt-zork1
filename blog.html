@@ -614,12 +614,9 @@ ZORK is a registered trademark of Infocom, Inc.
     Z-machine response on Tensix in real time.
   </p>
 
-  <div class="callout warn">
-    <p>
-      <strong>hybrid.cast</strong> not yet recorded. Run
-      <code>bash demos/record-all.sh hybrid</code> with the inference server running to generate it,
-      then reload this page.
-    </p>
+  <div class="player-wrap">
+    <div class="player-label">demos/hybrid.cast — human plays, Llama-3.3-70B rewrites every response</div>
+    <div id="player-hybrid"></div>
   </div>
 
   <div class="callout">
@@ -806,6 +803,9 @@ bash demos/record-all.sh ai
 
   AsciinemaPlayer.create('demos/stage3.cast', document.getElementById('player-stage3'),
     { ...opts, cols: 120, rows: 35, title: 'Stage 3 — RISC-V cores' });
+
+  AsciinemaPlayer.create('demos/hybrid.cast', document.getElementById('player-hybrid'),
+    { ...opts, cols: 120, rows: 35, title: 'Hybrid — human plays, LLM remix on' });
 
   AsciinemaPlayer.create('demos/ai.cast', document.getElementById('player-ai'),
     { ...opts, cols: 160, rows: 40, title: 'AI auto-play — experimental persona, 30 turns' });
