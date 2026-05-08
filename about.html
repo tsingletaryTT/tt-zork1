@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TT-Zork &amp; More — About &amp; Documentation</title>
+
+<style>
+  /* ── Tenstorrent palette ── */
+  :root {
+    --bg:        #0F2A35;
+    --bg-card:   #1A3C47;
+    --bg-raise:  #1f4455;
+    --teal:      #4FD1C5;
+    --teal-lt:   #81E6D9;
+    --pink:      #EC96B8;
+    --yellow:    #F4C471;
+    --green:     #27AE60;
+    --red:       #FF6B6B;
+    --text:      #E8F0F2;
+    --muted:     #8FAAB8;
+    --border:    #2a5060;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 1.7;
+  }
+
+  .wrap {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+  }
+
+  /* ── Top navbar ── */
+  .topnav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(15, 42, 53, 0.93);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .topnav-inner {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding-top: 0.7rem;
+    padding-bottom: 0.7rem;
+  }
+  .topnav-brand {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--teal);
+    white-space: nowrap;
+    flex-shrink: 0;
+    text-decoration: none;
+  }
+  .topnav-links {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    flex: 1;
+  }
+  .topnav-links a {
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+  .topnav-links a:hover, .topnav-links a.active { color: var(--teal); }
+  .topnav-github {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.9rem;
+    border-radius: 6px;
+    background: var(--teal);
+    color: var(--bg) !important;
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+  .topnav-github:hover { background: var(--teal-lt); }
+
+  /* ── Hero ── */
+  .hero {
+    padding: 4rem 0 3rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .hero-eyebrow {
+    font-size: 0.85rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--teal);
+    margin-bottom: 1rem;
+  }
+  .hero h1 {
+    font-size: clamp(1.8rem, 4vw, 2.6rem);
+    font-weight: 700;
+    line-height: 1.2;
+    margin-bottom: 1rem;
+    background: linear-gradient(135deg, var(--teal-lt), var(--teal), var(--pink));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero-sub {
+    font-size: 1.05rem;
+    color: var(--muted);
+    max-width: 640px;
+  }
+
+  /* ── Sections ── */
+  .section {
+    padding: 3rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .section:last-child { border-bottom: none; }
+
+  h2 {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--teal-lt);
+    margin: 2.5rem 0 1rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border);
+  }
+  h2:first-child { margin-top: 0; }
+  h3 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--teal);
+    margin: 2rem 0 0.5rem;
+  }
+  p { margin-bottom: 1rem; color: var(--muted); }
+  p strong { color: var(--text); }
+  a { color: var(--teal); }
+  em { color: var(--text); font-style: italic; }
+
+  /* ── Code ── */
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 0.88em;
+    background: var(--bg-raise);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.15em 0.4em;
+    color: var(--teal-lt);
+  }
+  pre {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.25rem 0;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 0.88rem;
+    color: var(--text);
+  }
+
+  /* ── Tables ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.25rem 0;
+    font-size: 0.92rem;
+  }
+  th {
+    text-align: left;
+    padding: 0.5rem 1rem;
+    border-bottom: 2px solid var(--border);
+    color: var(--teal);
+    font-weight: 600;
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  td {
+    padding: 0.65rem 1rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    vertical-align: top;
+  }
+  td:first-child { color: var(--text); font-weight: 500; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  /* ── Lists ── */
+  ul, ol {
+    margin: 0.75rem 0 1rem 1.5rem;
+    color: var(--muted);
+  }
+  li { margin-bottom: 0.3rem; }
+  li strong { color: var(--text); }
+
+  /* ── Callout ── */
+  .callout {
+    border-left: 3px solid var(--teal);
+    background: var(--bg-card);
+    border-radius: 0 8px 8px 0;
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+  }
+  .callout p { margin-bottom: 0; }
+
+  /* ── Footer ── */
+  footer {
+    padding: 3rem 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+    border-top: 1px solid var(--border);
+  }
+  footer a { color: var(--teal); }
+
+  /* ── Responsive ── */
+  @media (max-width: 600px) {
+    .hero { padding: 2.5rem 0 2rem; }
+    h2 { font-size: 1.3rem; }
+    table { font-size: 0.82rem; }
+    th, td { padding: 0.4rem 0.6rem; }
+    .topnav-links { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Navbar ────────────────────────────────────────────────── -->
+<nav class="topnav">
+  <div class="wrap topnav-inner">
+    <a class="topnav-brand" href="index.html">TT-Zork &amp; More</a>
+    <div class="topnav-links">
+      <a href="index.html">Demo</a>
+      <a href="about.html" class="active">About</a>
+      <a href="index.html#stage1">Stage 1</a>
+      <a href="index.html#stage2">Stage 2</a>
+      <a href="index.html#stage3">Stage 3</a>
+      <a href="index.html#remix">Remix</a>
+      <a href="index.html#ai">AI play</a>
+    </div>
+    <a class="topnav-github" href="https://github.com/tsingletaryTT/tt-zork-and-more" target="_blank" rel="noopener">
+      ★ GitHub
+    </a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<!-- ── Hero ── -->
+<section class="hero">
+  <p class="hero-eyebrow">TT-Zork &amp; More — Documentation</p>
+  <h1>Zork I on Tenstorrent</h1>
+  <p class="hero-sub">
+    Running a 1977 stack-based virtual machine on 2026 AI accelerator hardware —
+    three hardware stages, an LLM remix layer, and a full terminal UI.
+  </p>
+</section>
+
+<!-- ── Background ── -->
+<section class="section">
+  <h2>Background</h2>
+
+  <p>
+    <strong>Zork</strong> was written in 1977–1979 by Marc Blank, Dave Lebling, Bruce Daniels,
+    and Tim Anderson at MIT, originally in MDL on a PDP-10. Infocom commercialised it in 1980.
+    To ship the game across the fragmented microcomputer market of the era, Infocom designed the
+    <strong>Z-machine</strong>: a simple stack-based virtual machine whose bytecode could be
+    compiled once and interpreted on any platform they supported — CP/M, Apple II, TRS-80,
+    Commodore 64, and dozens more. The interpreter was small enough to write in a few kilobytes
+    of assembly for each target. The Z-machine specification, released publicly after Infocom was
+    acquired by Activision, later inspired Graham Nelson's Inform language and remains the format
+    for a large archive of interactive fiction.
+  </p>
+
+  <p>
+    <strong>Tenstorrent</strong> builds AI accelerators whose chips contain two distinct kinds of
+    processing elements. The <em>Tensix</em> cores handle tensor operations — matrix
+    multiplications, the inner loop of transformer inference. Each Tensix block is managed by a
+    cluster of small embedded <strong>RISC-V</strong> cores that handle data movement, instruction
+    dispatch, and coordination. These management cores are fully programmable; TT-Metal and TT-Lang
+    expose them as general-purpose compute targets through the <code>ttnn</code> API.
+  </p>
+
+  <p>This project runs the Z-machine on those three levels of the Tenstorrent stack:</p>
+
+  <table>
+    <thead><tr><th>Stage</th><th>Where the game runs</th></tr></thead>
+    <tbody>
+      <tr><td>1 — sim</td><td>Python Z-machine interpreter on the host CPU</td></tr>
+      <tr><td>2 — device</td><td>Same interpreter; game binary resides on Blackhole DRAM</td></tr>
+      <tr><td>3 — risc-v</td><td>Z-machine interpreter kernel running on Blackhole RISC-V cores</td></tr>
+      <tr><td>+remix</td><td>LLM response layer served by tt-inference-server on Tensix</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ── Quick Start ── -->
+<section class="section">
+  <h2>Quick Start</h2>
+
+  <pre><code># Activate the TT-Lang pyenv (required for stages 2 and 3)
+source ~/code/tt-lang/build/env/activate
+
+# Interactive startup menu (game + stage + remix selection)
+python play.py
+
+# Stage 1 — pure Python, no hardware needed
+python play.py --stage sim
+
+# Stage 2 — game binary on Blackhole DRAM
+python play.py --stage device
+
+# Stage 3 — interpreter on RISC-V cores
+python play.py --stage risc-v
+
+# Any stage with the LLM remix layer
+python play.py --stage sim --remix
+
+# LLM persona auto-play (the LLM plays; you watch)
+python play.py --stage sim --persona expert --turns 40
+
+# Full terminal UI (hardware monitor, streaming tokens, ASCII art)
+python play.py --stage device --remix --tui</code></pre>
+
+  <p>
+    Run with no arguments to get an interactive startup menu that lets you choose the game file,
+    stage, and remix mode. Pass <code>--stage</code> and <code>--game</code> together to skip
+    the menu. Use <code>--menu</code> to force the menu even when other flags are present.
+  </p>
+
+  <p>
+    Available game files in <code>game/</code>: <code>zork1.z3</code>, <code>zork2.z3</code>,
+    <code>zork3.z3</code>, <code>advent.z5</code>. Use <code>--game</code> to point at any
+    Z-machine story file.
+  </p>
+</section>
+
+<!-- ── How the Stages Work ── -->
+<section class="section">
+  <h2>How the Stages Work</h2>
+
+  <h3>Stage 1 — Pure Python (<code>--stage sim</code>)</h3>
+  <p>
+    <code>engines/sim.py</code> wraps <code>ttlang/zmachine_v3.py</code>, a complete Python
+    implementation of the Z-machine V3 specification. No hardware is required. The interpreter
+    runs the game's bytecode locally, handling all opcodes, the object tree, the dictionary,
+    Z-string abbreviation decoding, and the READ/PRINT I/O loop.
+  </p>
+
+  <h3>Stage 2 — Blackhole DRAM (<code>--stage device</code>)</h3>
+  <p>
+    <code>engines/device.py</code> opens a Tenstorrent Blackhole device via <code>ttnn</code>,
+    uploads the 87 KB game binary to on-chip DRAM as a <code>ttnn.Tensor</code>, verifies the
+    round-trip (first 8 header bytes), and records the physical DRAM address. The Python
+    Z-machine interpreter then runs against those DRAM-resident bytes on the host. The game data
+    lives on silicon; the interpreter logic runs on the host CPU. This validates the data path
+    that Stage 3 reuses.
+  </p>
+  <p><em>Requires:</em> <code>/dev/tenstorrent</code> present, TT-Lang pyenv active.</p>
+
+  <h3>Stage 3 — RISC-V cores (<code>--stage risc-v</code>)</h3>
+  <p>
+    <code>engines/riscv.py</code> dispatches <code>kernels/zork_interpreter_l1.cpp</code> to
+    Blackhole RISC-V cores via <code>ttnn.generic_op</code>. The kernel implements the Z-machine
+    interpreter in C++: it reads game bytecode from DRAM via the on-chip NoC, executes
+    instructions, decodes Z-strings, and writes output back to DRAM. The Python host reads the
+    result after each batch.
+  </p>
+  <p>
+    <strong>Current constraints:</strong> The Blackhole chip firmware limits each kernel
+    invocation to approximately 10 Z-machine instructions before the execution watchdog fires.
+    A third <code>generic_op</code> call within a single device session hangs reliably
+    (diagnosed in <code>ttlang/diag_batch3.py</code>); the workaround is opening and closing
+    the device for each batch. State does not persist across <code>step()</code> calls — each
+    command restarts the interpreter from the initial PC. These are firmware execution budget
+    constraints, not architecture limitations.
+  </p>
+  <p>
+    <em>Requires:</em> Blackhole hardware (p300c card or equivalent), TT-Lang pyenv active,
+    <code>kernels/zork_interpreter_l1.cpp</code> built.
+  </p>
+
+  <h3>Remix layer (<code>--remix</code>)</h3>
+  <p>
+    An LLM layer that intercepts each game response and rewrites it in a more expansive voice,
+    generates ASCII art for room entries, and collects postcard-style narrative snapshots at
+    notable moments. It does not alter game state — the Z-machine response is the source of
+    truth; the LLM changes the prose, not the facts.
+  </p>
+  <p>
+    The layer connects to an OpenAI-compatible endpoint (default:
+    <code>http://localhost:8000/v1/chat/completions</code>, typically a tt-inference-server
+    instance running LLaMA on Tensix). Override with <code>ZORK_LLM_URL</code>. Override the
+    model with <code>--model</code> or <code>ZORK_LLM_MODEL</code>.
+  </p>
+
+  <table>
+    <thead><tr><th>Task</th><th>Default model</th></tr></thead>
+    <tbody>
+      <tr><td>Input mapping (freeform → Zork command)</td><td>Llama-3.2-1B</td></tr>
+      <tr><td>Persona command selection (auto-play)</td><td>Llama-3.2-1B</td></tr>
+      <tr><td>Output remix, ASCII art, postcards</td><td>Llama-3.1-8B</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    The remix layer degrades gracefully — if the LLM server is unreachable, raw Z-machine output
+    is shown unchanged.
+  </p>
+</section>
+
+<!-- ── Terminal UI ── -->
+<section class="section">
+  <h2>Terminal UI (<code>--tui</code>)</h2>
+
+  <pre><code>python play.py --stage device --remix --tui</code></pre>
+
+  <p>A <a href="https://textual.textualize.io/">Textual</a>-based full-terminal interface with:</p>
+  <ul>
+    <li><strong>Left pane</strong> — scrolling game output, player input</li>
+    <li><strong>Right pane</strong> — three states: <code>HARDWARE</code> (live tt-smi telemetry),
+      <code>THINKING</code> (streaming LLM tokens with vocabulary-aware colour highlighting),
+      <code>ART</code> (ASCII room art)</li>
+    <li><strong>Status bar</strong> — stage, remix mode, LLM host, turn count</li>
+    <li><strong>F1</strong> — toggle right pane</li>
+    <li><strong>q</strong> — quit</li>
+  </ul>
+
+  <p>Slash commands available in the TUI:</p>
+  <table>
+    <thead><tr><th>Command</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td><code>/remix</code></td><td>Enable LLM remix layer</td></tr>
+      <tr><td><code>/classic</code></td><td>Disable LLM remix layer</td></tr>
+      <tr><td><code>/auto [persona]</code></td><td>Start LLM auto-play with named persona</td></tr>
+      <tr><td><code>/stop</code></td><td>Stop auto-play, return to manual</td></tr>
+      <tr><td><code>/help</code></td><td>Show command list</td></tr>
+      <tr><td><code>/quit</code></td><td>Exit</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ── Persona Auto-play ── -->
+<section class="section">
+  <h2>Persona Auto-play (<code>--persona</code>)</h2>
+
+  <pre><code>python play.py --stage sim --persona expert --turns 50
+python play.py --stage sim --persona naive --remix</code></pre>
+
+  <p>
+    The LLM plays the game. On each turn, the current game output is sent to a small model with
+    a persona-specific system prompt; the model returns the next command.
+  </p>
+  <ul>
+    <li><strong>expert</strong> — plays the known optimal route</li>
+    <li><strong>naive</strong> — explores curiously, makes mistakes</li>
+    <li><strong>completionist</strong> — pursues maximum score and full map coverage</li>
+    <li><strong>experimental</strong> — tries unusual commands and edge cases</li>
+  </ul>
+  <p>
+    The remix layer, if active, still rewrites each response. Use <code>--turns</code> to cap the
+    session (default: 50). In the TUI, <code>/auto expert</code> triggers the same loop
+    mid-session; <code>/stop</code> hands control back.
+  </p>
+</section>
+
+<!-- ── Requirements ── -->
+<section class="section">
+  <h2>Requirements</h2>
+
+  <h3>Stage 1 (sim)</h3>
+  <ul>
+    <li>Python 3.12+</li>
+    <li><code>pip install textual requests</code> (Textual for <code>--tui</code>, requests for remix LLM calls)</li>
+  </ul>
+
+  <h3>Stages 2 and 3 (device, risc-v)</h3>
+  <ul>
+    <li>Tenstorrent Blackhole hardware (p300c card)</li>
+    <li>TT-Lang pyenv: <code>source ~/code/tt-lang/build/env/activate</code></li>
+    <li>For Stage 3: kernel built and accessible at <code>kernels/zork_interpreter_l1.cpp</code></li>
+  </ul>
+
+  <h3>Remix layer (<code>--remix</code>)</h3>
+  <ul>
+    <li>A running OpenAI-compatible inference server (tt-inference-server recommended)</li>
+    <li>Default endpoint: <code>http://localhost:8000/v1/chat/completions</code></li>
+    <li>Set <code>ZORK_LLM_URL</code> to override</li>
+  </ul>
+
+  <h3>Hardware telemetry (TUI right pane)</h3>
+  <ul>
+    <li><code>tt-smi</code> installed and on <code>PATH</code> (ships with TT-Metal)</li>
+    <li>Degrades gracefully to "no hardware" notice when unavailable</li>
+  </ul>
+</section>
+
+<!-- ── Repository Layout ── -->
+<section class="section">
+  <h2>Repository Layout</h2>
+
+  <pre><code>play.py                  # Entry point — all stages and modes
+engines/
+  sim.py                 # Stage 1: pure Python
+  device.py              # Stage 2: Blackhole DRAM-backed
+  riscv.py               # Stage 3: RISC-V kernel dispatch
+ttlang/
+  zmachine_v3.py         # Python Z-machine V3 interpreter (~700 lines)
+  zork_device.py         # Blackhole DRAM upload / verify helper
+  zork_risc.py           # RISC-V batch loop (open→run→close per batch)
+kernels/
+  zork_interpreter_l1.cpp  # RISC-V Z-machine interpreter kernel
+  zork_interpreter_opt.cpp # Earlier kernel variant (read opcode support)
+remix/
+  llm.py                 # call_llm / call_llm_stream (OpenAI-compatible SSE)
+  router.py              # Task → model routing
+  mode.py                # RemixLayer orchestration
+  personas.py            # Auto-play persona definitions
+  input_mapper.py        # Freeform English → Zork command
+  output_remixer.py      # Z-machine text → LLM-rewritten response
+  ascii_artist.py        # Room ASCII art generation and caching
+  narrative_enhancer.py  # Postcard generation at notable moments
+tui/
+  app.py                 # ZMachineTuiApp (Textual)
+  game_pane.py           # Scrolling output + input widget
+  context_pane.py        # THINKING / ART / HARDWARE panel + token colorizer
+  hw_poller.py           # tt-smi -s JSON parser
+  vocabulary.py          # Z-machine dictionary extractor for token colorizer
+prompts/                 # LLM system prompts (editable plain text)
+game/
+  zork1.z3               # Zork I V3 bytecode (86 838 bytes, MIT-licensed)
+  zork2.z3               # Zork II V3 bytecode (MIT-licensed)
+  zork3.z3               # Zork III V3 bytecode (MIT-licensed)
+  advent.z5              # Colossal Cave Adventure Z5 (Graham Nelson port)
+  LICENSES.md            # Per-file license details
+tests/                   # pytest test suite (Python components)
+src/                     # Earlier C/Frotz implementation (historical)</code></pre>
+
+  <p>
+    The <code>src/</code> directory contains an earlier C implementation based on the Frotz
+    interpreter with TT-Metal kernel experiments. It is not connected to <code>play.py</code>
+    and is preserved for reference.
+  </p>
+</section>
+
+<!-- ── Tests ── -->
+<section class="section">
+  <h2>Tests</h2>
+
+  <pre><code>source ~/code/tt-lang/build/env/activate
+pytest tests/ -q</code></pre>
+
+  <p>
+    The test suite covers the Python Z-machine interpreter, the LLM layer (mocked), the TUI
+    token colorizer, and the hardware poller.
+  </p>
+</section>
+
+<!-- ── Credits ── -->
+<section class="section">
+  <h2>Credits</h2>
+
+  <p>
+    <strong>Zork I</strong> — Marc Blank, Dave Lebling, Bruce Daniels, Tim Anderson
+    (Infocom, 1980).
+  </p>
+
+  <p>
+    <strong>Z-machine specification</strong> — Graham Nelson and contributors. The canonical
+    reference is <a href="https://www.inform-fiction.org/zmachine/standards/">The Z-Machine
+    Standards Document</a>.
+  </p>
+
+  <p>
+    <strong>Frotz</strong> — David Griffith and contributors. The C implementation in
+    <code>src/</code> is built on Frotz 2.56pre (GPL-2.0). <code>play.py</code> and
+    <code>ttlang/</code> do not use Frotz.
+  </p>
+
+  <p>
+    <strong>TT-Metal / TT-Lang</strong> — Tenstorrent Inc. (Apache-2.0). The RISC-V kernel and
+    device layer use the <code>ttnn</code> API.
+  </p>
+
+  <div class="callout">
+    <p>
+      Zork I, II, and III were open-sourced under the MIT License in November 2025 by
+      Microsoft, Team Xbox, and Activision. See <code>game/LICENSES.md</code> for full details.
+    </p>
+  </div>
+</section>
+
+</div><!-- /wrap -->
+
+<!-- ── Footer ── -->
+<footer>
+  <div class="wrap">
+    <p>
+      <strong>Zork I</strong> — Marc Blank, Dave Lebling, Bruce Daniels, Tim Anderson (Infocom, 1980).
+      MIT License (Microsoft / Activision, 2025).
+    </p>
+    <p>
+      <strong>Z-machine spec</strong> —
+      <a href="https://www.inform-fiction.org/zmachine/standards/">inform-fiction.org</a>.
+      &nbsp;·&nbsp;
+      <strong>TT-Metal / <a href="https://github.com/tenstorrent/tt-lang">TT-Lang</a></strong> — Tenstorrent Inc. (Apache-2.0).
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>
