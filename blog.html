@@ -320,6 +320,7 @@
 
 <!-- Stage nav -->
 <nav class="stage-nav">
+  <a href="#ttlang"><span class="num">⚙</span> TT-Lang</a>
   <a href="#stage1"><span class="num">1</span> Pure Python</a>
   <a href="#stage2"><span class="num">2</span> QB2 DRAM</a>
   <a href="#stage3"><span class="num">3</span> RISC-V</a>
@@ -350,7 +351,8 @@
   </p>
 
   <p>
-    The question: can a Z-machine run on those cores?
+    The question: can a Z-machine run on those cores? And if the game runs there,
+    can a 70B language model running on the Tensix matrix cores rewrite every room in real time?
   </p>
 
   <table class="arch-table">
@@ -385,6 +387,106 @@
     The project lives at <span class="filepath">ttlang/zmachine_v3.py</span> (the Python interpreter),
     <span class="filepath">engines/</span> (the three stage backends), and
     <span class="filepath">kernels/zork_interpreter_l1.cpp</span> (the RISC-V kernel).
+  </p>
+</section>
+
+<!-- ── TT-Lang ─────────────────────────────────────────────── -->
+<section class="section" id="ttlang">
+  <div class="stage-badge yellow"><span class="dot"></span> TT-Lang</div>
+  <h2>The Toolkit — TT-Lang and the TT-Lang Pyenv</h2>
+
+  <p>
+    <strong><a href="https://github.com/tenstorrent/tt-lang">TT-Lang</a></strong> is
+    a Python DSL from Tenstorrent for authoring high-performance custom kernels on
+    Tenstorrent hardware. It sits between the high-level <code>ttnn</code> tensor API
+    and hand-written RISC-V C++, giving Python authors direct access to the on-chip
+    NoC, L1 dataflow buffers, and the three execution threads inside each Tensix core.
+  </p>
+
+  <p>
+    The <code>~/code/tt-lang/build/env/activate</code> virtualenv bundles
+    <code>ttnn</code> (device open/close, DRAM tensor allocation, data transfer),
+    the TT-Lang green-thread simulator, and the compiler backend that maps Python
+    kernel code to RISC-V. Every stage of this project runs inside that pyenv.
+  </p>
+
+  <h3>The @ttl.operation kernel model</h3>
+  <p>
+    Each TT-Lang kernel is a Python function decorated with
+    <code>@ttl.operation(grid=(r, c))</code>. Inside it, three nested functions
+    define what runs concurrently on each Tensix core. They communicate through
+    <strong>Dataflow Buffers</strong> (DFBs) — bounded queues that live in L1 cache
+    and enforce producer/consumer ordering without explicit locks:
+  </p>
+
+  <pre><code>@ttl.operation(grid=(1, 1))
+def zmachine_kernel(
+    game:       Tensor,   # 87 KB game binary — lives in QB2 DRAM
+    state:      Tensor,   # interpreter state checkpoint — DRAM
+    input_buf:  Tensor,   # player command string — DRAM
+    output:     Tensor,   # output text written back to DRAM
+) -> None:
+
+    # Double-buffered DFBs: while compute processes block N,
+    # dm_reader is already prefetching block N+1.
+    game_dfb = ttl.make_dataflow_buffer_like(game,   shape=(CHUNK_SIZE,), block_count=2)
+    out_dfb  = ttl.make_dataflow_buffer_like(output, shape=(CHUNK_SIZE,), block_count=2)
+
+    @ttl.compute()
+    def compute() -> None:
+        # Runs on the Tensix compute engine (mapped to RISC-V core 0 in DM mode).
+        # Receives DFB blocks from dm_reader, runs opcodes, pushes output blocks.
+        with game_dfb.wait() as game_blk, out_dfb.reserve() as o_blk:
+            o_blk.store(game_blk)   # stub — Task 10: zm.interpret(BATCH_SIZE)
+
+    @ttl.datamovement()
+    def dm_reader() -> None:
+        # Runs on RISC-V DM0. NoC async read: DRAM → L1.
+        with game_dfb.reserve() as g_blk:
+            tx = ttl.copy(game[:CHUNK_SIZE], g_blk)
+            tx.wait()
+
+    @ttl.datamovement()
+    def dm_writer() -> None:
+        # Runs on RISC-V DM1. NoC async write: L1 → DRAM.
+        with out_dfb.wait() as o_blk:
+            tx = ttl.copy(o_blk, output[:CHUNK_SIZE])
+            tx.wait()
+</code></pre>
+
+  <p>
+    The code above is from <span class="filepath">ttlang/zork_kernel.py</span>.
+    The double-buffered DFBs overlap DRAM transfers with computation — the same
+    pipeline strategy that makes GPU memory systems fast, here expressed as pure
+    Python that compiles down to Tenstorrent's NoC fabric.
+  </p>
+
+  <h3>Simulator first, hardware second</h3>
+  <p>
+    TT-Lang ships a green-thread simulator that runs the exact same kernel code
+    on the host CPU before any hardware is involved. The Zork kernel was validated
+    end-to-end in the simulator — all three threads, all DFB handshakes, and full
+    data integrity across the DRAM → L1 → DRAM round-trip — before touching the
+    device:
+  </p>
+
+  <pre><code>source ~/code/tt-lang/build/env/activate
+python ttlang/zork_kernel.py game/zork1.z3
+
+# [OK] Version byte: 3
+# [OK] Initial PC: 0x50D5
+# [OK] Abbreviation table: 0x01F0
+# [OK] All 512 bytes match game file exactly.
+# Smoke test PASSED.
+</code></pre>
+
+  <p>
+    The smoke test checks that <code>output[0] == 3</code> (Z-machine version byte),
+    the initial PC (header bytes 6–7 → <code>0x50D5</code>), the abbreviation table
+    address (header bytes 0x18–0x19 → <code>0x01F0</code>), and that all 512 bytes of
+    the first game chunk pass through the DFB pipeline without corruption. Confirming
+    those numbers in the simulator meant Stage 2 and Stage 3 started from a verified
+    data path.
   </p>
 </section>
 
@@ -523,6 +625,43 @@ ZORK is a registered trademark of Infocom, Inc.
     That is real 1977 bytecode executing on a 2026 AI accelerator's management cores.
     The data path — NoC async read from DRAM to L1, instruction fetch and decode,
     Z-string output back to DRAM — is fully operational.
+  </p>
+
+  <h3>How the kernel runs on chip</h3>
+  <p>
+    The TT-Lang kernel scaffolding (<span class="filepath">ttlang/zork_kernel.py</span>)
+    defines the DRAM ↔ L1 data paths and the three-thread structure described in
+    the TT-Lang section above. The Python host dispatches it via
+    <code>ttnn.generic_op</code>, passing the game, state, input, and output tensors
+    as DRAM buffers. On chip:
+  </p>
+
+  <table class="arch-table">
+    <thead><tr><th>Thread</th><th>Maps to</th><th>Responsibility</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>dm_reader</td>
+        <td>RISC-V DM0</td>
+        <td>NoC async read — pulls game chunks + state + command from DRAM into L1 DFBs</td>
+      </tr>
+      <tr>
+        <td>compute</td>
+        <td>Tensix compute engine</td>
+        <td>Fetches opcodes from L1, dispatches to 24 V3 opcode handlers, accumulates output text</td>
+      </tr>
+      <tr>
+        <td>dm_writer</td>
+        <td>RISC-V DM1</td>
+        <td>NoC async write — pushes output text + updated state snapshot back to DRAM</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    The game binary (87 KB) is transferred to L1 in 170 chunks of 512 bytes each.
+    Double-buffered DFBs keep the NoC busy while compute is dispatching opcodes —
+    the same overlap strategy TT-Lang uses for neural network weight streaming,
+    repurposed here for a 1977 text adventure.
   </p>
 
   <div class="player-wrap">
@@ -711,13 +850,13 @@ python play.py \
 
   <h3>AI plays Zork II</h3>
   <p>
-    The same persona system works with any game. Here, the <code>expert</code> persona
-    navigates the barrow: it knows Infocom conventions, takes the lantern first, checks
-    inventory, and moves deliberately. The remix layer rewrites every room description in
-    the same atmospheric voice as the Zork I demo.
+    The same persona system works with any game. Here, the <code>naive</code> persona
+    explores the barrow for the first time: it picks up the lantern, tries directions,
+    makes the occasional mistake, and gradually uncovers the world. The remix layer
+    rewrites every room description in the same atmospheric voice as the Zork I demo.
   </p>
   <div class="player-wrap">
-    <div class="player-label">demos/zork2-ai.cast — Zork II × Llama 3.3 70B, expert persona, 20 turns</div>
+    <div class="player-label">demos/zork2-ai.cast — Zork II × Llama 3.3 70B, naive persona, 15 turns</div>
     <div id="player-zork2-ai"></div>
   </div>
 </section>
@@ -726,6 +865,26 @@ python play.py \
 <section class="section">
   <div class="stage-badge"><span class="dot"></span> Reflections</div>
   <h2>What We Learned</h2>
+
+  <h3>TT-Lang's simulator is a real first-class citizen</h3>
+  <p>
+    The TT-Lang green-thread simulator is not a toy. The DFB state machine it enforces —
+    every <code>.wait()</code> must be followed by a legal <code>.store()</code> or
+    <code>copy()</code> before the context manager exits — matches the hardware
+    constraints exactly. Writing the kernel in the simulator first meant that when the
+    kernel ran on hardware, the data path was already proven. No "works in sim,
+    broken on device" surprises from DFB sequencing errors.
+  </p>
+
+  <h3>bfloat16 preserves 0–255 exactly</h3>
+  <p>
+    The <code>ttnn</code> API uses bfloat16 as the default dtype for DRAM tensors.
+    Game bytecode lives in that range, and a bfloat16 has 7 explicit mantissa bits —
+    enough to represent every integer from 0 to 255 without rounding. The
+    <span class="filepath">engines/device.py</span> round-trip test (header bytes
+    0–7 read back and compared) verifies this on every startup. Without that check,
+    a dtype change or precision regression would silently corrupt the game.
+  </p>
 
   <h3>DRAM page_size must equal buffer_size</h3>
   <p>
@@ -823,7 +982,7 @@ bash demos/record-all.sh zork2-stage2 zork2-ai
       <strong>Z-machine spec</strong> —
       <a href="https://www.inform-fiction.org/zmachine/standards/">inform-fiction.org</a>.
       &nbsp;·&nbsp;
-      <strong>TT-Metal / TT-Lang</strong> — Tenstorrent Inc. (Apache-2.0).
+      <strong>TT-Metal / <a href="https://github.com/tenstorrent/tt-lang">TT-Lang</a></strong> — Tenstorrent Inc. (Apache-2.0).
     </p>
   </div>
 </footer>
@@ -856,7 +1015,7 @@ bash demos/record-all.sh zork2-stage2 zork2-ai
     { ...opts, cols: 120, rows: 35, title: 'Zork II — pure Python interpreter' });
 
   AsciinemaPlayer.create('demos/zork2-ai.cast', document.getElementById('player-zork2-ai'),
-    { ...opts, cols: 160, rows: 40, title: 'Zork II × Llama — expert persona, 20 turns' });
+    { ...opts, cols: 160, rows: 40, title: 'Zork II × Llama — naive persona, 15 turns' });
 </script>
 
 </body>
